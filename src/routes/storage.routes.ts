@@ -1,0 +1,37 @@
+import { Router } from 'express';
+import { authenticate } from '../middleware/auth.js';
+import { requireCompanyContext, tenantGuard } from '../middleware/tenant.js';
+import { authorize } from '../middleware/rbac.js';
+import { validate } from '../middleware/validate.js';
+import {
+  chamberSchema,
+  chamberUpdateSchema,
+  locationSchema,
+  locationUpdateSchema,
+  rackSchema,
+  rackUpdateSchema,
+} from '../validators/schemas.js';
+import * as storageController from '../controllers/storage.controller.js';
+
+const chambers = Router();
+chambers.use(authenticate, tenantGuard, requireCompanyContext);
+chambers.get('/', authorize('chamber.view'), storageController.listChambers);
+chambers.post('/', authorize('chamber.create'), validate(chamberSchema), storageController.createChamber);
+chambers.patch('/:id', authorize('chamber.update'), validate(chamberUpdateSchema), storageController.updateChamber);
+chambers.delete('/:id', authorize('chamber.delete'), storageController.removeChamber);
+
+const racks = Router();
+racks.use(authenticate, tenantGuard, requireCompanyContext);
+racks.get('/', authorize('rack.view'), storageController.listRacks);
+racks.post('/', authorize('rack.create'), validate(rackSchema), storageController.createRack);
+racks.patch('/:id', authorize('rack.update'), validate(rackUpdateSchema), storageController.updateRack);
+racks.delete('/:id', authorize('rack.delete'), storageController.removeRack);
+
+const locations = Router();
+locations.use(authenticate, tenantGuard, requireCompanyContext);
+locations.get('/', authorize('location.view'), storageController.listLocations);
+locations.post('/', authorize('location.create'), validate(locationSchema), storageController.createLocation);
+locations.patch('/:id', authorize('location.update'), validate(locationUpdateSchema), storageController.updateLocation);
+locations.delete('/:id', authorize('location.delete'), storageController.removeLocation);
+
+export { chambers as chamberRoutes, racks as rackRoutes, locations as locationRoutes };
