@@ -1,10 +1,12 @@
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import * as helmetNs from 'helmet';
+import { rateLimit } from 'express-rate-limit';
 import { env } from './config/env.js';
 import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+
+const helmet = helmetNs.default;
 
 export function createApp() {
   const app = express();
