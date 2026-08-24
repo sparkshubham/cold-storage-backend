@@ -47,7 +47,11 @@ async function ensureDatabase(req: express.Request, _res: express.Response, next
     next();
   } catch (err) {
     logger.error({ err }, 'MongoDB connection failed');
-    next(new AppError('Database unavailable', 503));
+    const hint =
+      err instanceof Error && err.message.includes('MONGODB_URI')
+        ? err.message
+        : 'Database unavailable. On Vercel set MONGODB_URI to your Atlas URI, and in Atlas Network Access allow 0.0.0.0/0.';
+    next(new AppError(hint, 503));
   }
 }
 
@@ -87,8 +91,18 @@ export function createApp() {
     });
   });
 
-  app.get('/health', (_req, res) => {
-    res.json({ success: true, data: { status: 'ok', service: 'coldflow-api' } });
+  app.get('/health', async (_req, res) => {
+    let database: 'connected' | 'disconnected' = 'disconnected';
+    try {
+      await connectDatabase();
+      database = 'connected';
+    } catch (err) {
+      logger.error({ err }, 'Health check could not reach MongoDB');
+    }
+    res.status(database === 'connected' ? 200 : 503).json({
+      success: database === 'connected',
+      data: { status: database === 'connected' ? 'ok' : 'degraded', service: 'coldflow-api', database },
+    });
   });
 
   app.use(env.API_PREFIX, createApiRouter());
