@@ -1,10 +1,9 @@
-import { createRequire } from 'node:module';
 import express, { type RequestHandler } from 'express';
-import cors from 'cors';
 import helmetImport from 'helmet';
+import { createRequire } from 'node:module';
 import { rateLimit } from 'express-rate-limit';
 import { env } from './config/env.js';
-import { corsOptions } from './config/cors.js';
+import { corsMiddleware } from './config/cors.js';
 import { connectDatabase } from './config/db.js';
 import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
@@ -39,7 +38,7 @@ function loadHelmet(): ((options?: Record<string, unknown>) => RequestHandler) |
 const helmet = loadHelmet();
 
 async function ensureDatabase(req: express.Request, _res: express.Response, next: express.NextFunction) {
-  if (req.path === '/' || req.path === '/health') {
+  if (req.method === 'OPTIONS' || req.path === '/' || req.path === '/health') {
     next();
     return;
   }
@@ -56,8 +55,7 @@ export function createApp() {
   const app = express();
 
   app.set('trust proxy', 1);
-  app.use(cors(corsOptions));
-  app.options(/.*/, cors(corsOptions));
+  app.use(corsMiddleware);
   if (helmet) {
     app.use(
       helmet({
@@ -75,6 +73,7 @@ export function createApp() {
       max: 300,
       standardHeaders: true,
       legacyHeaders: false,
+      skip: (req) => req.method === 'OPTIONS',
       message: { success: false, message: 'Too many requests' },
     }),
   );
