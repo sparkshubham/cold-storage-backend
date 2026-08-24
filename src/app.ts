@@ -1,12 +1,20 @@
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import cors from 'cors';
-import * as helmetNs from 'helmet';
+import helmetImport from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { env } from './config/env.js';
 import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
-const helmet = helmetNs.default;
+function middlewareFactory(mod: unknown): () => RequestHandler {
+  const fn = typeof mod === 'function' ? mod : (mod as { default: unknown }).default;
+  if (typeof fn !== 'function') {
+    throw new TypeError('Expected a callable middleware factory');
+  }
+  return fn as () => RequestHandler;
+}
+
+const helmet = middlewareFactory(helmetImport);
 
 export function createApp() {
   const app = express();
