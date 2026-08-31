@@ -16,6 +16,7 @@ import { categoryService, customerService, productService, supplierService, unit
 import { createChamber, createLocation, createRack } from '../services/storage.service.js';
 import { createInward, createOpeningStock } from '../services/inventory.service.js';
 import { CustomerModel } from '../models/Customer.js';
+import { isMainModule } from '../utils/isMain.js';
 
 async function seedPermissions() {
   const docs = PERMISSIONS.map((key) => {
@@ -257,8 +258,7 @@ async function seedOperationalData() {
   logger.info('Demo operational data seeded');
 }
 
-async function main() {
-  await connectDatabase();
+export async function runSeed() {
   await seedPermissions();
   await seedPlatformRole();
   await seedPlans();
@@ -266,11 +266,18 @@ async function main() {
   await seedDemoCompany();
   await seedOperationalData();
   logger.info('Seed completed');
+}
+
+async function main() {
+  await connectDatabase();
+  await runSeed();
   await disconnectDatabase();
 }
 
-main().catch(async (err) => {
-  logger.error({ err }, 'Seed failed');
-  await disconnectDatabase();
-  process.exit(1);
-});
+if (isMainModule(import.meta.url)) {
+  main().catch(async (err) => {
+    logger.error({ err }, 'Seed failed');
+    await disconnectDatabase();
+    process.exit(1);
+  });
+}

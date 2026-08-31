@@ -1,6 +1,7 @@
 import './config/loadEnv.js';
 import { env } from './config/env.js';
 import { connectDatabase } from './config/db.js';
+import { prepareDatabase } from './scripts/prepareDb.js';
 import app from './app.js';
 import { logger } from './utils/logger.js';
 
@@ -10,6 +11,7 @@ async function main() {
   }
 
   await connectDatabase();
+  await prepareDatabase();
   app.listen(env.PORT, () => {
     logger.info(`ColdFlow API listening on port ${env.PORT}`);
   });

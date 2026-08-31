@@ -5,6 +5,7 @@ import { rateLimit } from 'express-rate-limit';
 import { env } from './config/env.js';
 import { corsMiddleware } from './config/cors.js';
 import { connectDatabase } from './config/db.js';
+import { prepareDatabase } from './scripts/prepareDb.js';
 import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { AppError } from './utils/AppError.js';
@@ -44,6 +45,7 @@ async function ensureDatabase(req: express.Request, _res: express.Response, next
   }
   try {
     await connectDatabase();
+    await prepareDatabase();
     next();
   } catch (err) {
     logger.error({ err }, 'MongoDB connection failed');
