@@ -7,6 +7,7 @@ import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, unitRout
 import { chamberRoutes, locationRoutes, rackRoutes } from './storage.routes.js';
 import { inventoryRoutes, inwardRoutes, outwardRoutes, stockTransactionRoutes } from './inventory.routes.js';
 import { invoiceRoutes } from './invoice.routes.js';
+import { settingsRoutes } from './settings.routes.js';
 
 export function createApiRouter() {
   const router = Router();
@@ -31,5 +32,6 @@ export function createApiRouter() {
   router.use('/inwards', inwardRoutes);
   router.use('/outwards', outwardRoutes);
   router.use('/invoices', invoiceRoutes);
+  router.use('/settings', settingsRoutes);
   return router;
 }

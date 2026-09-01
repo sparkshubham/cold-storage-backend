@@ -254,6 +254,37 @@ export const invoiceGenerateSchema = z.object({
   ...invoiceRatesSchema,
 });
 
+export const unitRateRowSchema = z.object({
+  unit: z.string().trim().min(1).toUpperCase(),
+  storageRatePerUnitPerDay: z.coerce.number().min(0),
+  inwardHandlingRate: z.coerce.number().min(0),
+  outwardHandlingRate: z.coerce.number().min(0),
+});
+
+export const companySettingsSchema = z
+  .object({
+    invoicePrefix: z.string().trim().min(1).max(12).toUpperCase().optional(),
+    defaultGstRate: z.coerce.number().min(0).max(100).optional(),
+    storageRatePerUnitPerDay: z.coerce.number().min(0).optional(),
+    inwardHandlingRate: z.coerce.number().min(0).optional(),
+    outwardHandlingRate: z.coerce.number().min(0).optional(),
+    unitRates: z.array(unitRateRowSchema).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.unitRates) return;
+    const seen = new Set<string>();
+    value.unitRates.forEach((row, index) => {
+      if (seen.has(row.unit)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Rates for ${row.unit} are listed twice`,
+          path: ['unitRates', index, 'unit'],
+        });
+      }
+      seen.add(row.unit);
+    });
+  });
+
 export const movementMetaSchema = z.object({
   vehicleNumber: z.string().optional(),
   notes: z.string().optional(),

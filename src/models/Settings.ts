@@ -15,6 +15,17 @@ const settingsSchema = new Schema(
     storageRatePerUnitPerDay: { type: Number, default: 20 },
     inwardHandlingRate: { type: Number, default: 40 },
     outwardHandlingRate: { type: Number, default: 40 },
+    unitRates: {
+      type: [
+        {
+          unit: { type: String, required: true, trim: true, uppercase: true },
+          storageRatePerUnitPerDay: { type: Number, default: 0 },
+          inwardHandlingRate: { type: Number, default: 0 },
+          outwardHandlingRate: { type: Number, default: 0 },
+        },
+      ],
+      default: [],
+    },
     dateFormat: { type: String, default: 'DD-MM-YYYY' },
     currency: { type: String, default: 'INR' },
     currencySymbol: { type: String, default: '₹' },

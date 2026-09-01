@@ -4,7 +4,7 @@ import { InvoiceModel } from '../models/Invoice.js';
 import { InwardModel } from '../models/Inward.js';
 import { OutwardModel } from '../models/Outward.js';
 import { ProductModel } from '../models/Product.js';
-import { SettingsModel } from '../models/Settings.js';
+import { getSettings } from './settings.service.js';
 import { AppError } from '../utils/AppError.js';
 import { writeAudit } from '../utils/audit.js';
 import { nextCode } from '../utils/codes.js';
@@ -46,6 +46,32 @@ export function storageDaysBetween(from: Date, to: Date) {
   return Math.max(1, days);
 }
 
+type SettingsLike = {
+  storageRatePerUnitPerDay?: number;
+  inwardHandlingRate?: number;
+  outwardHandlingRate?: number;
+  defaultGstRate?: number;
+  unitRates?: Array<{
+    unit?: string;
+    storageRatePerUnitPerDay?: number;
+    inwardHandlingRate?: number;
+    outwardHandlingRate?: number;
+  }>;
+};
+
+export function ratesForUnit(settings: SettingsLike, unit: string, overrides: RateInput = {}) {
+  const code = String(unit ?? '').trim().toUpperCase();
+  const row = (settings.unitRates ?? []).find((item) => String(item.unit ?? '').trim().toUpperCase() === code);
+  return {
+    unit: code,
+    rateSource: (row ? 'unit' : 'default') as 'unit' | 'default',
+    storageRatePerUnitPerDay: Number(overrides.storageRatePerUnitPerDay ?? row?.storageRatePerUnitPerDay ?? settings.storageRatePerUnitPerDay ?? 20),
+    inwardHandlingRate: Number(overrides.inwardHandlingRate ?? row?.inwardHandlingRate ?? settings.inwardHandlingRate ?? 40),
+    outwardHandlingRate: Number(overrides.outwardHandlingRate ?? row?.outwardHandlingRate ?? settings.outwardHandlingRate ?? 40),
+    gstRate: Number(overrides.gstRate ?? settings.defaultGstRate ?? 18),
+  };
+}
+
 function idOf(value: unknown): string {
   if (value == null || value === '') return '';
   if (typeof value === 'object' && '_id' in value) return String((value as { _id: unknown })._id);
@@ -61,15 +87,7 @@ const invoicePopulate = [
 ];
 
 async function loadSettings(companyId: string) {
-  return (
-    (await SettingsModel.findOne({ companyId })) ?? {
-      invoicePrefix: 'INV',
-      defaultGstRate: 18,
-      storageRatePerUnitPerDay: 20,
-      inwardHandlingRate: 40,
-      outwardHandlingRate: 40,
-    }
-  );
+  return getSettings(companyId);
 }
 
 async function findRelatedInward(outward: {
@@ -110,18 +128,18 @@ async function existingIssuedInvoice(companyId: string, sourceType: SourceType, 
 }
 
 export async function buildInvoiceDraft(companyId: string, sourceType: SourceType, sourceId: string, rates: RateInput = {}) {
-  const settings = await loadSettings(companyId);
-  const storageRate = rates.storageRatePerUnitPerDay ?? Number(settings.storageRatePerUnitPerDay ?? 20);
-  const inwardHandlingRate = rates.inwardHandlingRate ?? Number(settings.inwardHandlingRate ?? 40);
-  const outwardHandlingRate = rates.outwardHandlingRate ?? Number(settings.outwardHandlingRate ?? 40);
-  const gstRate = rates.gstRate ?? Number(settings.defaultGstRate ?? 18);
-
+  const settings = await loadSettings(companyId) as SettingsLike & { invoicePrefix?: string };
   const source = sourceType === 'inward' ? await getInward(companyId, sourceId) : await getOutward(companyId, sourceId);
   const relatedInward = sourceType === 'inward' ? source : await findRelatedInward(source as never);
   const product = await ProductModel.findOne({ _id: source.productId, companyId, deletedAt: null });
   const hsn = product?.hsn ?? '';
   const quantity = Number(source.quantity);
   const unit = String(source.unit ?? '');
+  const resolved = ratesForUnit(settings, unit, rates);
+  const storageRate = resolved.storageRatePerUnitPerDay;
+  const inwardHandlingRate = resolved.inwardHandlingRate;
+  const outwardHandlingRate = resolved.outwardHandlingRate;
+  const gstRate = resolved.gstRate;
   const storageFrom = relatedInward ? new Date(relatedInward.date) : new Date(source.date);
   const storageTo = new Date(source.date);
   const storageDays = sourceType === 'outward' ? storageDaysBetween(storageFrom, storageTo) : 0;
@@ -185,6 +203,7 @@ export async function buildInvoiceDraft(companyId: string, sourceType: SourceTyp
     sourceNumber: sourceType === 'inward' ? (source as { inwardNumber?: string }).inwardNumber : (source as { outwardNumber?: string }).outwardNumber,
     quantity,
     unit,
+    rateSource: resolved.rateSource,
     storageFrom: sourceType === 'outward' ? storageFrom : null,
     storageTo: sourceType === 'outward' ? storageTo : null,
     storageDays,

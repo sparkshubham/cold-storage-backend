@@ -144,6 +144,11 @@ export async function createCompany(
         {
           companyId: created._id,
           scope: 'company',
+          unitRates: [
+            { unit: 'MT', storageRatePerUnitPerDay: 20, inwardHandlingRate: 40, outwardHandlingRate: 40 },
+            { unit: 'BAG', storageRatePerUnitPerDay: 2, inwardHandlingRate: 5, outwardHandlingRate: 5 },
+            { unit: 'KG', storageRatePerUnitPerDay: 0.25, inwardHandlingRate: 0.5, outwardHandlingRate: 0.5 },
+          ],
         },
       ],
       { session },
