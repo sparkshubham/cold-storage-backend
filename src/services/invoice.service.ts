@@ -295,3 +295,45 @@ export async function getInvoice(companyId: string, id: string) {
   const company = await CompanyModel.findById(companyId).select('name legalName mobile email gstin pan address');
   return { invoice, company };
 }
+
+export async function updateInvoice(companyId: string, id: string, input: { notes?: string }, actor: AuthUser) {
+  if (!mongoose.isValidObjectId(id)) throw AppError.notFound('Invoice not found');
+  const invoice = await InvoiceModel.findOne({ _id: id, companyId, deletedAt: null });
+  if (!invoice) throw AppError.notFound('Invoice not found');
+  if (invoice.status === 'cancelled') throw AppError.badRequest('Cancelled bills cannot be edited');
+  if (input.notes != null) invoice.notes = input.notes;
+  invoice.updatedBy = actor.id as unknown as typeof invoice.updatedBy;
+  await invoice.save();
+  await writeAudit({
+    companyId,
+    userId: actor.id,
+    userName: actor.name,
+    action: 'UPDATE',
+    module: 'Invoice',
+    recordId: String(invoice._id),
+    recordLabel: invoice.invoiceNumber,
+  });
+  return getInvoice(companyId, id);
+}
+
+export async function cancelInvoice(companyId: string, id: string, actor: AuthUser) {
+  if (!mongoose.isValidObjectId(id)) throw AppError.notFound('Invoice not found');
+  const invoice = await InvoiceModel.findOne({ _id: id, companyId, deletedAt: null });
+  if (!invoice) throw AppError.notFound('Invoice not found');
+  if (invoice.status === 'cancelled') throw AppError.badRequest('This bill is already cancelled');
+  invoice.status = 'cancelled';
+  invoice.updatedBy = actor.id as unknown as typeof invoice.updatedBy;
+  await invoice.save();
+  await InwardModel.updateMany({ companyId, invoiceId: invoice._id }, { $set: { invoiceId: null } });
+  await OutwardModel.updateMany({ companyId, invoiceId: invoice._id }, { $set: { invoiceId: null } });
+  await writeAudit({
+    companyId,
+    userId: actor.id,
+    userName: actor.name,
+    action: 'DELETE',
+    module: 'Invoice',
+    recordId: String(invoice._id),
+    recordLabel: invoice.invoiceNumber,
+  });
+  return getInvoice(companyId, id);
+}

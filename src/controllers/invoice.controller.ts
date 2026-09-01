@@ -36,3 +36,13 @@ export const getInvoice = asyncHandler(async (req: Request, res: Response) => {
   const doc = await invoiceService.getInvoice(requireTenantId(req), routeParam(req, 'id'));
   return success(res, doc);
 });
+
+export const updateInvoice = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await invoiceService.updateInvoice(requireTenantId(req), routeParam(req, 'id'), req.body, getAuthUser(req));
+  return success(res, doc, 'Bill updated');
+});
+
+export const cancelInvoice = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await invoiceService.cancelInvoice(requireTenantId(req), routeParam(req, 'id'), getAuthUser(req));
+  return success(res, doc, 'Bill cancelled');
+});

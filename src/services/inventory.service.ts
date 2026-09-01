@@ -7,6 +7,7 @@ import { RackModel } from '../models/Rack.js';
 import { LocationModel } from '../models/Location.js';
 import { InwardModel } from '../models/Inward.js';
 import { OutwardModel } from '../models/Outward.js';
+import { InvoiceModel } from '../models/Invoice.js';
 import { CustomerModel } from '../models/Customer.js';
 import { ProductModel } from '../models/Product.js';
 import { AppError } from '../utils/AppError.js';
@@ -70,6 +71,7 @@ export async function applyStockMovement(
     locationId: string;
     quantity: number;
     unit: string;
+    outbound?: boolean;
     referenceType?: string;
     referenceId?: string;
     referenceNumber?: string;
@@ -78,9 +80,9 @@ export async function applyStockMovement(
   },
   session?: ClientSession,
 ) {
-  const delta = ['OUTWARD', 'TRANSFER_OUT', 'ADJUSTMENT_OUT', 'DAMAGE'].includes(input.type)
-    ? -Math.abs(input.quantity)
-    : Math.abs(input.quantity);
+  const outboundByType = ['OUTWARD', 'TRANSFER_OUT', 'ADJUSTMENT_OUT', 'DAMAGE'].includes(input.type);
+  const outbound = input.outbound ?? outboundByType;
+  const delta = outbound ? -Math.abs(input.quantity) : Math.abs(input.quantity);
   const batchId = input.batchId || null;
 
   const location = await LocationModel.findOne({
@@ -470,6 +472,152 @@ export async function createOutward(companyId: string, input: Record<string, unk
       recordLabel: outward.outwardNumber,
     });
     return outward;
+  });
+}
+
+function idString(value: unknown) {
+  if (value && typeof value === 'object' && '_id' in (value as { _id: unknown })) {
+    return String((value as { _id: unknown })._id);
+  }
+  return value ? String(value) : '';
+}
+
+async function assertNotIssued(companyId: string, sourceType: 'inward' | 'outward', sourceId: string, session?: ClientSession) {
+  const billed = await InvoiceModel.findOne({
+    companyId,
+    sourceType,
+    sourceId,
+    status: 'issued',
+    deletedAt: null,
+  }).session(session ?? null);
+  if (billed) {
+    throw AppError.conflict(`Cancel bill ${billed.invoiceNumber} before cancelling this ${sourceType}`);
+  }
+}
+
+export async function updateInward(companyId: string, id: string, input: Record<string, unknown>, actor: AuthUser) {
+  const doc = await InwardModel.findOne({ _id: id, companyId, deletedAt: null });
+  if (!doc) throw AppError.notFound('Inward not found');
+  if (doc.status === 'cancelled') throw AppError.badRequest('Cancelled inward cannot be edited');
+  if (input.vehicleNumber != null) doc.vehicleNumber = String(input.vehicleNumber);
+  if (input.notes != null) doc.notes = String(input.notes);
+  if (input.date) doc.date = new Date(String(input.date));
+  doc.updatedBy = actor.id as unknown as typeof doc.updatedBy;
+  await doc.save();
+  await writeAudit({
+    companyId,
+    userId: actor.id,
+    userName: actor.name,
+    action: 'UPDATE',
+    module: 'Inward',
+    recordId: String(doc._id),
+    recordLabel: doc.inwardNumber,
+  });
+  return getInward(companyId, id);
+}
+
+export async function updateOutward(companyId: string, id: string, input: Record<string, unknown>, actor: AuthUser) {
+  const doc = await OutwardModel.findOne({ _id: id, companyId, deletedAt: null });
+  if (!doc) throw AppError.notFound('Outward not found');
+  if (doc.status === 'cancelled') throw AppError.badRequest('Cancelled outward cannot be edited');
+  if (input.vehicleNumber != null) doc.vehicleNumber = String(input.vehicleNumber);
+  if (input.notes != null) doc.notes = String(input.notes);
+  if (input.date) doc.date = new Date(String(input.date));
+  doc.updatedBy = actor.id as unknown as typeof doc.updatedBy;
+  await doc.save();
+  await writeAudit({
+    companyId,
+    userId: actor.id,
+    userName: actor.name,
+    action: 'UPDATE',
+    module: 'Outward',
+    recordId: String(doc._id),
+    recordLabel: doc.outwardNumber,
+  });
+  return getOutward(companyId, id);
+}
+
+export async function cancelInward(companyId: string, id: string, actor: AuthUser) {
+  if (!mongoose.isValidObjectId(id)) throw AppError.notFound('Inward not found');
+  return withTransaction(async (session) => {
+    const doc = await InwardModel.findOne({ _id: id, companyId, deletedAt: null }).session(session ?? null);
+    if (!doc) throw AppError.notFound('Inward not found');
+    if (doc.status === 'cancelled') throw AppError.badRequest('This inward is already cancelled');
+    await assertNotIssued(companyId, 'inward', id, session);
+    await applyStockMovement(
+      {
+        companyId,
+        type: 'REVERSAL',
+        outbound: true,
+        customerId: idString(doc.customerId),
+        productId: idString(doc.productId),
+        batchId: doc.batchId ? idString(doc.batchId) : null,
+        locationId: idString(doc.locationId),
+        quantity: Number(doc.quantity),
+        unit: String(doc.unit),
+        referenceType: 'inward',
+        referenceId: String(doc._id),
+        referenceNumber: doc.inwardNumber,
+        notes: 'Cancelled inward',
+        actor,
+      },
+      session,
+    );
+    doc.status = 'cancelled';
+    doc.updatedBy = actor.id as unknown as typeof doc.updatedBy;
+    await doc.save({ session });
+    await writeAudit({
+      companyId,
+      userId: actor.id,
+      userName: actor.name,
+      action: 'DELETE',
+      module: 'Inward',
+      recordId: String(doc._id),
+      recordLabel: doc.inwardNumber,
+    });
+    return doc;
+  });
+}
+
+export async function cancelOutward(companyId: string, id: string, actor: AuthUser) {
+  if (!mongoose.isValidObjectId(id)) throw AppError.notFound('Outward not found');
+  return withTransaction(async (session) => {
+    const doc = await OutwardModel.findOne({ _id: id, companyId, deletedAt: null }).session(session ?? null);
+    if (!doc) throw AppError.notFound('Outward not found');
+    if (doc.status === 'cancelled') throw AppError.badRequest('This outward is already cancelled');
+    await assertNotIssued(companyId, 'outward', id, session);
+    await applyStockMovement(
+      {
+        companyId,
+        type: 'REVERSAL',
+        outbound: false,
+        customerId: idString(doc.customerId),
+        productId: idString(doc.productId),
+        batchId: doc.batchId ? idString(doc.batchId) : null,
+        locationId: idString(doc.locationId),
+        quantity: Number(doc.quantity),
+        unit: String(doc.unit),
+        referenceType: 'outward',
+        referenceId: String(doc._id),
+        referenceNumber: doc.outwardNumber,
+        notes: 'Cancelled outward',
+        actor,
+      },
+      session,
+    );
+    doc.status = 'cancelled';
+    doc.updatedBy = actor.id as unknown as typeof doc.updatedBy;
+    await doc.save({ session });
+    await writeAudit({
+      companyId,
+      userId: actor.id,
+      userName: actor.name,
+      action: 'DELETE',
+      module: 'Outward',
+      recordId: String(doc._id),
+      recordLabel: doc.outwardNumber,
+    });
+    return doc;
   });
 }
 

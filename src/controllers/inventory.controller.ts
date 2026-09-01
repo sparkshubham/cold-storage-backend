@@ -68,3 +68,23 @@ export const getOutward = asyncHandler(async (req: Request, res: Response) => {
   const doc = await inventoryService.getOutward(requireTenantId(req), routeParam(req, 'id'));
   return success(res, doc);
 });
+
+export const updateInward = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await inventoryService.updateInward(requireTenantId(req), routeParam(req, 'id'), req.body, getAuthUser(req));
+  return success(res, doc, 'Inward updated');
+});
+
+export const updateOutward = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await inventoryService.updateOutward(requireTenantId(req), routeParam(req, 'id'), req.body, getAuthUser(req));
+  return success(res, doc, 'Outward updated');
+});
+
+export const cancelInward = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await inventoryService.cancelInward(requireTenantId(req), routeParam(req, 'id'), getAuthUser(req));
+  return success(res, doc, 'Inward cancelled');
+});
+
+export const cancelOutward = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await inventoryService.cancelOutward(requireTenantId(req), routeParam(req, 'id'), getAuthUser(req));
+  return success(res, doc, 'Outward cancelled');
+});

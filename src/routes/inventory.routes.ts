@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/auth.js';
 import { requireCompanyContext, tenantGuard } from '../middleware/tenant.js';
 import { authorize } from '../middleware/rbac.js';
 import { validate } from '../middleware/validate.js';
-import { adjustmentSchema, inwardSchema, openingStockSchema, outwardSchema } from '../validators/schemas.js';
+import { adjustmentSchema, inwardSchema, movementMetaSchema, openingStockSchema, outwardSchema } from '../validators/schemas.js';
 import * as inventoryController from '../controllers/inventory.controller.js';
 
 const inventory = Router();
@@ -21,12 +21,16 @@ inwards.use(authenticate, tenantGuard, requireCompanyContext);
 inwards.get('/', authorize('inward.view'), inventoryController.listInwards);
 inwards.get('/:id', authorize('inward.view'), inventoryController.getInward);
 inwards.post('/', authorize('inward.create'), validate(inwardSchema), inventoryController.createInward);
+inwards.patch('/:id', authorize('inward.update'), validate(movementMetaSchema), inventoryController.updateInward);
+inwards.post('/:id/cancel', authorize('inward.cancel'), inventoryController.cancelInward);
 
 const outwards = Router();
 outwards.use(authenticate, tenantGuard, requireCompanyContext);
 outwards.get('/', authorize('outward.view'), inventoryController.listOutwards);
 outwards.get('/:id', authorize('outward.view'), inventoryController.getOutward);
 outwards.post('/', authorize('outward.create'), validate(outwardSchema), inventoryController.createOutward);
+outwards.patch('/:id', authorize('outward.update'), validate(movementMetaSchema), inventoryController.updateOutward);
+outwards.post('/:id/cancel', authorize('outward.cancel'), inventoryController.cancelOutward);
 
 export {
   inventory as inventoryRoutes,

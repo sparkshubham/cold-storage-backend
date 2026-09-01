@@ -254,4 +254,14 @@ export const invoiceGenerateSchema = z.object({
   ...invoiceRatesSchema,
 });
 
+export const movementMetaSchema = z.object({
+  vehicleNumber: z.string().optional(),
+  notes: z.string().optional(),
+  date: z.coerce.date().optional(),
+});
+
+export const invoiceNotesSchema = z.object({
+  notes: z.string().optional(),
+});
+
 
