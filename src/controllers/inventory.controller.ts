@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { created, paginated, success } from '../utils/apiResponse.js';
-import { getPagination, queryString } from '../utils/pagination.js';
+import { getPagination, queryString, routeParam } from '../utils/pagination.js';
 import { getAuthUser, requireTenantId } from '../types/auth.js';
 import * as inventoryService from '../services/inventory.service.js';
 
@@ -48,6 +48,11 @@ export const createInward = asyncHandler(async (req: Request, res: Response) => 
   return created(res, doc, 'Inward completed');
 });
 
+export const getInward = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await inventoryService.getInward(requireTenantId(req), routeParam(req, 'id'));
+  return success(res, doc);
+});
+
 export const listOutwards = asyncHandler(async (req: Request, res: Response) => {
   const pagination = getPagination(req);
   const result = await inventoryService.listOutwards(requireTenantId(req), pagination);
@@ -57,4 +62,9 @@ export const listOutwards = asyncHandler(async (req: Request, res: Response) => 
 export const createOutward = asyncHandler(async (req: Request, res: Response) => {
   const doc = await inventoryService.createOutward(requireTenantId(req), req.body, getAuthUser(req));
   return created(res, doc, 'Outward completed');
+});
+
+export const getOutward = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await inventoryService.getOutward(requireTenantId(req), routeParam(req, 'id'));
+  return success(res, doc);
 });

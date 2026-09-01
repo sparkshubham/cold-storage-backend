@@ -17,6 +17,7 @@ const inwardSchema = new Schema(
     locationId: { type: Schema.Types.ObjectId, ref: 'Location', required: true },
     vehicleNumber: { type: String, default: '' },
     notes: { type: String, default: '' },
+    invoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice', default: null },
     status: { type: String, enum: INWARD_STATUSES, default: 'completed', index: true },
     deletedAt: { type: Date, default: null },
     deletedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },

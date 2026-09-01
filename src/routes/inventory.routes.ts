@@ -19,11 +19,13 @@ stockTransactions.get('/', authorize('inventory.view'), inventoryController.list
 const inwards = Router();
 inwards.use(authenticate, tenantGuard, requireCompanyContext);
 inwards.get('/', authorize('inward.view'), inventoryController.listInwards);
+inwards.get('/:id', authorize('inward.view'), inventoryController.getInward);
 inwards.post('/', authorize('inward.create'), validate(inwardSchema), inventoryController.createInward);
 
 const outwards = Router();
 outwards.use(authenticate, tenantGuard, requireCompanyContext);
 outwards.get('/', authorize('outward.view'), inventoryController.listOutwards);
+outwards.get('/:id', authorize('outward.view'), inventoryController.getOutward);
 outwards.post('/', authorize('outward.create'), validate(outwardSchema), inventoryController.createOutward);
 
 export {

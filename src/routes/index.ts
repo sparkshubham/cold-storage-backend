@@ -6,6 +6,7 @@ import { userRoutes, roleRoutes, auditLogRoutes, dashboardRoutes } from './user.
 import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, unitRoutes } from './master.routes.js';
 import { chamberRoutes, locationRoutes, rackRoutes } from './storage.routes.js';
 import { inventoryRoutes, inwardRoutes, outwardRoutes, stockTransactionRoutes } from './inventory.routes.js';
+import { invoiceRoutes } from './invoice.routes.js';
 
 export function createApiRouter() {
   const router = Router();
@@ -29,5 +30,6 @@ export function createApiRouter() {
   router.use('/stock-transactions', stockTransactionRoutes);
   router.use('/inwards', inwardRoutes);
   router.use('/outwards', outwardRoutes);
+  router.use('/invoices', invoiceRoutes);
   return router;
 }

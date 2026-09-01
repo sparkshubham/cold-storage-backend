@@ -5,6 +5,7 @@ import { ChamberModel } from './Chamber.js';
 import { CompanyModel } from './Company.js';
 import { CustomerModel } from './Customer.js';
 import { InventoryModel } from './Inventory.js';
+import { InvoiceModel } from './Invoice.js';
 import { InwardModel } from './Inward.js';
 import { LocationModel } from './Location.js';
 import { OutwardModel } from './Outward.js';
@@ -29,6 +30,7 @@ export const registeredModels = [
   CompanyModel,
   CustomerModel,
   InventoryModel,
+  InvoiceModel,
   InwardModel,
   LocationModel,
   OutwardModel,

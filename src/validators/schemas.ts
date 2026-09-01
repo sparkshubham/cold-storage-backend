@@ -233,3 +233,25 @@ export const chamberUpdateSchema = chamberSchema.partial();
 export const rackUpdateSchema = rackSchema.partial();
 export const locationUpdateSchema = locationSchema.partial();
 
+const invoiceRatesSchema = {
+  storageRatePerUnitPerDay: z.coerce.number().min(0).optional(),
+  inwardHandlingRate: z.coerce.number().min(0).optional(),
+  outwardHandlingRate: z.coerce.number().min(0).optional(),
+  gstRate: z.coerce.number().min(0).max(100).optional(),
+};
+
+export const invoicePreviewQuerySchema = z.object({
+  sourceType: z.enum(['inward', 'outward']),
+  sourceId: z.string().min(1),
+  ...invoiceRatesSchema,
+});
+
+export const invoiceGenerateSchema = z.object({
+  sourceType: z.enum(['inward', 'outward']),
+  sourceId: z.string().min(1),
+  notes: z.string().optional().default(''),
+  date: z.coerce.date().optional(),
+  ...invoiceRatesSchema,
+});
+
+

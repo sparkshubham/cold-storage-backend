@@ -289,6 +289,28 @@ export async function createOpeningStock(companyId: string, input: Record<string
   });
 }
 
+const movementPopulate = [
+  { path: 'customerId', select: 'name code mobile email gstin address city state pincode' },
+  { path: 'productId', select: 'name code hsn defaultRate unitId' },
+  { path: 'chamberId', select: 'name code' },
+  { path: 'rackId', select: 'name code' },
+  { path: 'locationId', select: 'code' },
+  { path: 'batchId', select: 'batchNumber lotNumber inwardDate expiryDate' },
+  { path: 'invoiceId', select: 'invoiceNumber total status date' },
+];
+
+export async function getInward(companyId: string, id: string) {
+  const doc = await InwardModel.findOne({ _id: id, companyId, deletedAt: null }).populate(movementPopulate);
+  if (!doc) throw AppError.notFound('Inward not found');
+  return doc;
+}
+
+export async function getOutward(companyId: string, id: string) {
+  const doc = await OutwardModel.findOne({ _id: id, companyId, deletedAt: null }).populate(movementPopulate);
+  if (!doc) throw AppError.notFound('Outward not found');
+  return doc;
+}
+
 export async function listInwards(companyId: string, params: ListParams) {
   const filter: Record<string, unknown> = { companyId, deletedAt: null };
   if (params.search) {
@@ -300,6 +322,7 @@ export async function listInwards(companyId: string, params: ListParams) {
       .populate('customerId', 'name code')
       .populate('productId', 'name code')
       .populate('locationId', 'code')
+      .populate('invoiceId', 'invoiceNumber total status')
       .sort({ createdAt: -1 })
       .skip(params.skip)
       .limit(params.limit),
@@ -381,6 +404,7 @@ export async function listOutwards(companyId: string, params: ListParams) {
       .populate('customerId', 'name code')
       .populate('productId', 'name code')
       .populate('locationId', 'code')
+      .populate('invoiceId', 'invoiceNumber total status')
       .sort({ createdAt: -1 })
       .skip(params.skip)
       .limit(params.limit),

@@ -143,6 +143,7 @@ export const STOCK_TXN_TYPES = [
 ] as const;
 export const INWARD_STATUSES = ['draft', 'pending', 'received', 'allocated', 'completed', 'cancelled'] as const;
 export const OUTWARD_STATUSES = ['draft', 'requested', 'approved', 'picking', 'ready', 'dispatched', 'completed', 'cancelled'] as const;
+export const INVOICE_STATUSES = ['issued', 'cancelled'] as const;
 
 export const DEFAULT_PAGE = 1;
 export const DEFAULT_LIMIT = 20;
