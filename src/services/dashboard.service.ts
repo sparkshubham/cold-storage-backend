@@ -26,6 +26,7 @@ export async function getSuperAdminDashboard() {
     expiringSubscriptions,
     growth,
     occupiedAgg,
+    capacityAgg,
   ] = await Promise.all([
     CompanyModel.countDocuments({ deletedAt: null }),
     CompanyModel.countDocuments({ deletedAt: null, status: 'active' }),
@@ -61,11 +62,10 @@ export async function getSuperAdminDashboard() {
       { $match: { deletedAt: null } },
       { $group: { _id: null, occupied: { $sum: '$occupiedCapacity' } } },
     ]),
-  ]);
-
-  const capacityAgg = await CompanyModel.aggregate([
-    { $match: { deletedAt: null } },
-    { $group: { _id: null, totalCapacity: { $sum: '$storageCapacity' } } },
+    CompanyModel.aggregate([
+      { $match: { deletedAt: null } },
+      { $group: { _id: null, totalCapacity: { $sum: '$storageCapacity' } } },
+    ]),
   ]);
 
   const totalStorageCapacity = capacityAgg[0]?.totalCapacity ?? 0;
@@ -103,10 +103,8 @@ export async function getCompanyDashboard(companyId: string) {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const company = await CompanyModel.findById(companyId).select(
-    'name storageCapacity capacityUnit chamberCount status',
-  );
-  const [userCount, totalCustomers, chamberAgg, stockAgg, todaysInward, todaysOutward] = await Promise.all([
+  const [company, userCount, totalCustomers, chamberAgg, stockAgg, todaysInward, todaysOutward] = await Promise.all([
+    CompanyModel.findById(companyId).select('name storageCapacity capacityUnit chamberCount status'),
     UserModel.countDocuments({ companyId, deletedAt: null }),
     CustomerModel.countDocuments({ companyId, deletedAt: null }),
     ChamberModel.aggregate([

@@ -79,13 +79,18 @@ export async function login(input: {
     throw AppError.forbidden('Account is not active');
   }
 
-  const match = await bcrypt.compare(input.password, user.passwordHash);
+  const [match, company, role] = await Promise.all([
+    bcrypt.compare(input.password, user.passwordHash),
+    user.roleCode === ROLE_CODES.SUPER_ADMIN || !user.companyId
+      ? Promise.resolve(null)
+      : CompanyModel.findOne({ _id: user.companyId, deletedAt: null }).select('status'),
+    RoleModel.findById(user.roleId).select('permissionKeys'),
+  ]);
   if (!match) {
     throw AppError.unauthorized('Invalid credentials');
   }
 
   if (user.roleCode !== ROLE_CODES.SUPER_ADMIN) {
-    const company = await CompanyModel.findOne({ _id: user.companyId, deletedAt: null });
     if (!company) {
       throw AppError.forbidden('Company not found');
     }
@@ -95,29 +100,34 @@ export async function login(input: {
   }
 
   const { token: refreshToken, jti } = signRefreshToken(String(user._id));
-  await RefreshTokenModel.create({
-    userId: user._id,
-    tokenHash: hashToken(refreshToken),
-    jti,
-    expiresAt: addDays(new Date(), 7),
-    userAgent: input.userAgent ?? '',
-    ip: input.ip ?? '',
+  const accessToken = signAccessToken({
+    sub: String(user._id),
+    role: user.roleCode,
+    companyId: user.companyId ? String(user.companyId) : null,
+    permissions: role?.permissionKeys ?? [],
   });
 
   user.lastLoginAt = new Date();
-  await user.save();
-
-  const { accessToken, role } = await buildAuthPayload(String(user._id));
-
-  await writeAudit({
-    companyId: user.companyId ? String(user.companyId) : null,
-    userId: String(user._id),
-    userName: user.name,
-    action: 'LOGIN',
-    module: 'Auth',
-    ip: input.ip,
-    userAgent: input.userAgent,
-  });
+  await Promise.all([
+    RefreshTokenModel.create({
+      userId: user._id,
+      tokenHash: hashToken(refreshToken),
+      jti,
+      expiresAt: addDays(new Date(), 7),
+      userAgent: input.userAgent ?? '',
+      ip: input.ip ?? '',
+    }),
+    UserModel.updateOne({ _id: user._id }, { $set: { lastLoginAt: user.lastLoginAt } }),
+    writeAudit({
+      companyId: user.companyId ? String(user.companyId) : null,
+      userId: String(user._id),
+      userName: user.name,
+      action: 'LOGIN',
+      module: 'Auth',
+      ip: input.ip,
+      userAgent: input.userAgent,
+    }),
+  ]);
 
   return {
     user: publicUser(user),

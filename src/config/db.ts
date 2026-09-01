@@ -2,6 +2,10 @@ import mongoose from 'mongoose';
 import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
+mongoose.set('strictQuery', true);
+mongoose.set('autoIndex', false);
+mongoose.set('autoCreate', false);
+
 const LOCAL_HOST = /localhost|127\.0\.0\.1/;
 
 function mongoHost(uri: string): string {
@@ -37,16 +41,16 @@ let connecting: Promise<void> | null = null;
 
 async function openConnection(): Promise<void> {
   const uri = resolveMongoUri();
-  mongoose.set('strictQuery', true);
 
   logger.info({ host: mongoHost(uri) }, 'Connecting to MongoDB');
 
   await mongoose.connect(uri, {
-    serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 10000,
-    socketTimeoutMS: 45000,
-    maxPoolSize: 5,
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000,
+    socketTimeoutMS: 20000,
+    maxPoolSize: 10,
     minPoolSize: 0,
+    maxIdleTimeMS: 10000,
     family: 4,
   });
 

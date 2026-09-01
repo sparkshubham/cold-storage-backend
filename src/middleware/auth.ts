@@ -1,6 +1,5 @@
 import type { RequestHandler } from 'express';
 import { UserModel } from '../models/User.js';
-import { RoleModel } from '../models/Role.js';
 import { CompanyModel } from '../models/Company.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -26,7 +25,14 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
     throw AppError.unauthorized('Invalid token type');
   }
 
-  const user = await UserModel.findOne({ _id: payload.sub, deletedAt: null });
+  const isSuperAdmin = payload.role === ROLE_CODES.SUPER_ADMIN;
+  const [user, company] = await Promise.all([
+    UserModel.findOne({ _id: payload.sub, deletedAt: null }).select('email name roleCode companyId status'),
+    isSuperAdmin || !payload.companyId
+      ? Promise.resolve(null)
+      : CompanyModel.findOne({ _id: payload.companyId, deletedAt: null }).select('status'),
+  ]);
+
   if (!user) {
     throw AppError.unauthorized('User not found');
   }
@@ -37,15 +43,10 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
     throw AppError.forbidden('Account is not active');
   }
 
-  const role = await RoleModel.findById(user.roleId);
-  const permissions = role?.permissionKeys ?? payload.permissions ?? [];
-  const isSuperAdmin = user.roleCode === ROLE_CODES.SUPER_ADMIN;
-
   if (!isSuperAdmin) {
     if (!user.companyId) {
       throw AppError.forbidden('User is not assigned to a company');
     }
-    const company = await CompanyModel.findOne({ _id: user.companyId, deletedAt: null });
     if (!company) {
       throw AppError.forbidden('Company not found');
     }
@@ -60,7 +61,7 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
     name: user.name,
     role: user.roleCode,
     companyId: user.companyId ? String(user.companyId) : null,
-    permissions,
+    permissions: payload.permissions ?? [],
     isSuperAdmin,
   };
 

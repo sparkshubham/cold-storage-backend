@@ -3,7 +3,6 @@ import bcrypt from 'bcryptjs';
 import { env } from '../config/env.js';
 import { PERMISSIONS, ROLE_CODES } from '../config/constants.js';
 import { SYSTEM_ROLES } from '../config/roles.js';
-import { connectDatabase, disconnectDatabase } from '../config/db.js';
 import { PermissionModel } from '../models/Permission.js';
 import { RoleModel } from '../models/Role.js';
 import { UserModel } from '../models/User.js';
@@ -16,7 +15,6 @@ import { categoryService, customerService, productService, supplierService, unit
 import { createChamber, createLocation, createRack } from '../services/storage.service.js';
 import { createInward, createOpeningStock } from '../services/inventory.service.js';
 import { CustomerModel } from '../models/Customer.js';
-import { isMainModule } from '../utils/isMain.js';
 
 async function seedPermissions() {
   const docs = PERMISSIONS.map((key) => {
@@ -95,16 +93,31 @@ async function seedSuperAdmin() {
     throw new Error('Super admin role missing');
   }
   const email = env.SEED_SUPER_ADMIN_EMAIL.toLowerCase();
-  const existing = await UserModel.findOne({ email });
+  const existing = await UserModel.findOne({ email }).select('+passwordHash');
+  const passwordHash = await bcrypt.hash(env.SEED_SUPER_ADMIN_PASSWORD, env.BCRYPT_SALT_ROUNDS);
   if (existing) {
-    logger.info({ email }, 'Super admin already exists');
+    const matches = existing.passwordHash
+      ? await bcrypt.compare(env.SEED_SUPER_ADMIN_PASSWORD, existing.passwordHash)
+      : false;
+    if (!matches || existing.status !== 'active' || existing.deletedAt) {
+      existing.passwordHash = passwordHash;
+      existing.roleId = role._id;
+      existing.roleCode = ROLE_CODES.SUPER_ADMIN;
+      existing.status = 'active';
+      existing.deletedAt = null;
+      existing.companyId = null;
+      await existing.save();
+      logger.info({ email }, 'Super admin password reset');
+    } else {
+      logger.info({ email }, 'Super admin ready');
+    }
     return;
   }
   await UserModel.create({
     name: 'Platform Super Admin',
     email,
     mobile: '9999999999',
-    passwordHash: await bcrypt.hash(env.SEED_SUPER_ADMIN_PASSWORD, env.BCRYPT_SALT_ROUNDS),
+    passwordHash,
     roleId: role._id,
     roleCode: ROLE_CODES.SUPER_ADMIN,
     companyId: null,
@@ -114,31 +127,38 @@ async function seedSuperAdmin() {
 }
 
 async function seedDemoCompany() {
-  const existing = await CompanyModel.findOne({ email: 'demo@abccold.test', deletedAt: null });
-  if (existing) {
-    logger.info('Demo company already exists');
-    return;
+  const plan = await PlanModel.findOne({ code: 'PROFESSIONAL' });
+  const company = await CompanyModel.findOneAndUpdate(
+    { email: 'demo@abccold.test' },
+    {
+      $set: {
+        name: 'ABC Cold Storage',
+        legalName: 'ABC Cold Storage Pvt Ltd',
+        ownerName: 'Ramesh Kumar',
+        mobile: '9876543210',
+        email: 'demo@abccold.test',
+        gstin: '',
+        pan: '',
+        address: { line1: 'Industrial Area', city: 'Agra', state: 'Uttar Pradesh', pincode: '282001' },
+        storageCapacity: 12000,
+        capacityUnit: 'MT',
+        chamberCount: 5,
+        planId: plan?._id ?? null,
+        status: 'active',
+        deletedAt: null,
+        onboardingCompleted: false,
+      },
+    },
+    { upsert: true, new: true },
+  );
+  if (!company) {
+    throw new Error('Demo company missing');
   }
 
-  const plan = await PlanModel.findOne({ code: 'PROFESSIONAL' });
-  const company = await CompanyModel.create({
-    name: 'ABC Cold Storage',
-    legalName: 'ABC Cold Storage Pvt Ltd',
-    ownerName: 'Ramesh Kumar',
-    mobile: '9876543210',
-    email: 'demo@abccold.test',
-    gstin: '',
-    pan: '',
-    address: { line1: 'Industrial Area', city: 'Agra', state: 'Uttar Pradesh', pincode: '282001' },
-    storageCapacity: 12000,
-    capacityUnit: 'MT',
-    chamberCount: 5,
-    planId: plan?._id ?? null,
-    status: 'active',
-    onboardingCompleted: false,
-  });
-
-  await createCompanyRoles(String(company._id));
+  const roleCount = await RoleModel.countDocuments({ companyId: company._id, deletedAt: null });
+  if (roleCount === 0) {
+    await createCompanyRoles(String(company._id));
+  }
   await SettingsModel.updateOne({ companyId: company._id }, { $set: { scope: 'company' } }, { upsert: true });
 
   const passwordHash = await bcrypt.hash('ChangeMe123!', env.BCRYPT_SALT_ROUNDS);
@@ -153,6 +173,16 @@ async function seedDemoCompany() {
   for (const item of roleUsers) {
     const role = await RoleModel.findOne({ companyId: company._id, code: item.code });
     if (!role) continue;
+    const existingUser = await UserModel.findOne({ email: item.email });
+    if (existingUser) {
+      existingUser.roleId = role._id;
+      existingUser.roleCode = item.code;
+      existingUser.companyId = company._id;
+      existingUser.status = 'active';
+      existingUser.deletedAt = null;
+      await existingUser.save();
+      continue;
+    }
     await UserModel.create({
       name: item.name,
       email: item.email,
@@ -179,7 +209,8 @@ async function seedOperationalData() {
 
   const admin = await UserModel.findOne({ email: 'admin@abccold.test', companyId: company._id });
   if (!admin) {
-    throw new Error('Demo admin missing');
+    logger.warn('Demo admin missing; skipping operational seed');
+    return;
   }
 
   const actor = {
@@ -264,20 +295,10 @@ export async function runSeed() {
   await seedPlans();
   await seedSuperAdmin();
   await seedDemoCompany();
-  await seedOperationalData();
+  try {
+    await seedOperationalData();
+  } catch (err) {
+    logger.error({ err }, 'Operational seed failed; login accounts were still created');
+  }
   logger.info('Seed completed');
-}
-
-async function main() {
-  await connectDatabase();
-  await runSeed();
-  await disconnectDatabase();
-}
-
-if (isMainModule(import.meta.url)) {
-  main().catch(async (err) => {
-    logger.error({ err }, 'Seed failed');
-    await disconnectDatabase();
-    process.exit(1);
-  });
 }
