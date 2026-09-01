@@ -11,5 +11,9 @@ async function main() {
 main().catch(async (err) => {
   logger.error({ err }, 'Database prepare failed');
   await disconnectDatabase();
+  if (process.env.VERCEL) {
+    logger.warn('Vercel build continues without seed/migrate');
+    process.exit(0);
+  }
   process.exit(1);
 });
