@@ -1,4 +1,4 @@
-import type { ClientSession } from 'mongoose';
+import mongoose, { type ClientSession } from 'mongoose';
 import { InventoryModel } from '../models/Inventory.js';
 import { StockTransactionModel } from '../models/StockTransaction.js';
 import { BatchModel } from '../models/Batch.js';
@@ -300,12 +300,14 @@ const movementPopulate = [
 ];
 
 export async function getInward(companyId: string, id: string) {
+  if (!mongoose.isValidObjectId(id)) throw AppError.notFound('Inward not found');
   const doc = await InwardModel.findOne({ _id: id, companyId, deletedAt: null }).populate(movementPopulate);
   if (!doc) throw AppError.notFound('Inward not found');
   return doc;
 }
 
 export async function getOutward(companyId: string, id: string) {
+  if (!mongoose.isValidObjectId(id)) throw AppError.notFound('Outward not found');
   const doc = await OutwardModel.findOne({ _id: id, companyId, deletedAt: null }).populate(movementPopulate);
   if (!doc) throw AppError.notFound('Outward not found');
   return doc;

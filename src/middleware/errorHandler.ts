@@ -25,6 +25,11 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     });
   }
 
+  const name = err && typeof err === 'object' && 'name' in err ? String((err as { name?: string }).name) : '';
+  if (name === 'CastError' || name === 'BSONError') {
+    return res.status(400).json({ success: false, message: 'Invalid id' });
+  }
+
   logger.error({ err }, 'Unhandled error');
 
   return res.status(500).json({

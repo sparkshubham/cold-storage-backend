@@ -8,7 +8,16 @@ export function validate(schema: ZodType, source: 'body' | 'query' | 'params' = 
     if (!result.success) {
       return next(AppError.validation('Validation failed', result.error.flatten()));
     }
-    req[source] = result.data as typeof req.body;
+    try {
+      req[source] = result.data as typeof req.body;
+    } catch {
+      Object.defineProperty(req, source, {
+        value: result.data,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    }
     next();
   };
 }

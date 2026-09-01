@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { CompanyModel } from '../models/Company.js';
 import { InvoiceModel } from '../models/Invoice.js';
 import { InwardModel } from '../models/Inward.js';
@@ -288,6 +289,7 @@ export async function listInvoices(companyId: string, params: ListParams) {
 }
 
 export async function getInvoice(companyId: string, id: string) {
+  if (!mongoose.isValidObjectId(id)) throw AppError.notFound('Invoice not found');
   const invoice = await InvoiceModel.findOne({ _id: id, companyId, deletedAt: null }).populate(invoicePopulate);
   if (!invoice) throw AppError.notFound('Invoice not found');
   const company = await CompanyModel.findById(companyId).select('name legalName mobile email gstin pan address');
