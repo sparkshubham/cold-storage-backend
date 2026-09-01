@@ -1,0 +1,26 @@
+import { Router } from 'express';
+import { authenticate, requireSuperAdmin } from '../middleware/auth.js';
+import { tenantGuard } from '../middleware/tenant.js';
+import { authorize } from '../middleware/rbac.js';
+import { validate } from '../middleware/validate.js';
+import { userCreateSchema, userUpdateSchema } from '../validators/schemas.js';
+import * as userController from '../controllers/user.controller.js';
+import * as dashboardController from '../controllers/dashboard.controller.js';
+const users = Router();
+users.use(authenticate, tenantGuard);
+users.get('/', authorize('user.view'), userController.list);
+users.post('/', authorize('user.create'), validate(userCreateSchema), userController.create);
+users.patch('/:id', authorize('user.update'), validate(userUpdateSchema), userController.update);
+users.delete('/:id', authorize('user.delete'), userController.remove);
+const roles = Router();
+roles.use(authenticate, tenantGuard);
+roles.get('/', authorize('role.view'), userController.listRoles);
+const auditLogs = Router();
+auditLogs.use(authenticate, tenantGuard);
+auditLogs.get('/', authorize('audit.view'), userController.listAuditLogs);
+const dashboards = Router();
+dashboards.use(authenticate, tenantGuard);
+dashboards.get('/super-admin', requireSuperAdmin, dashboardController.superAdminDashboard);
+dashboards.get('/company', dashboardController.companyDashboard);
+export { users as userRoutes, roles as roleRoutes, auditLogs as auditLogRoutes, dashboards as dashboardRoutes };
+//# sourceMappingURL=user.routes.js.map
