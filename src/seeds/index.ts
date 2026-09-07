@@ -27,13 +27,21 @@ async function seedPermissions() {
   }
 }
 
-async function syncSystemRoles() {
+export async function syncSystemRoles() {
   for (const template of SYSTEM_ROLES) {
     await RoleModel.updateMany(
       { code: template.code, isSystem: true, deletedAt: null },
       { $set: { permissionKeys: template.permissionKeys, name: template.name, description: template.description } },
     );
   }
+}
+
+/** Keep permission catalog + system role keys current without re-seeding demo data. */
+export async function syncAccessControl() {
+  await seedPermissions();
+  await seedPlatformRole();
+  await syncSystemRoles();
+  logger.info('Access control synced (permissions + system roles)');
 }
 
 async function ensureUnit(

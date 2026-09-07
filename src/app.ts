@@ -44,6 +44,8 @@ async function ensureDatabase(req: express.Request, _res: express.Response, next
   }
   try {
     await connectDatabase();
+    const { syncAccessControlOnce } = await import('./bootstrap.js');
+    await syncAccessControlOnce();
     next();
   } catch (err) {
     logger.error({ err }, 'MongoDB connection failed');

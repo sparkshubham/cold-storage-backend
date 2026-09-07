@@ -32,6 +32,7 @@ racks.delete('/:id', authorize('rack.delete'), storageController.removeRack);
 const pillars = Router();
 pillars.use(authenticate, tenantGuard, requireCompanyContext);
 pillars.get('/', authorize('pillar.view'), storageController.listPillars);
+pillars.get('/:id', authorize('pillar.view'), storageController.getPillar);
 pillars.post('/', authorize('pillar.create'), validate(pillarSchema), storageController.createPillar);
 pillars.patch('/:id', authorize('pillar.update'), validate(pillarUpdateSchema), storageController.updatePillar);
 pillars.delete('/:id', authorize('pillar.delete'), storageController.removePillar);

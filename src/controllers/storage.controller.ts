@@ -65,6 +65,11 @@ export const listPillars = asyncHandler(async (req: Request, res: Response) => {
   return paginated(res, result.data, { ...pagination, total: result.total });
 });
 
+export const getPillar = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await storageService.getPillar(requireTenantId(req), routeParam(req, 'id'));
+  return success(res, doc);
+});
+
 export const createPillar = asyncHandler(async (req: Request, res: Response) => {
   const doc = await storageService.createPillar(requireTenantId(req), req.body, getAuthUser(req));
   return created(res, doc);

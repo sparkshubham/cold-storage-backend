@@ -227,6 +227,15 @@ export async function listPillars(companyId: string, params: ListParams & { cham
   return { data: rows.map((row) => occupancy(row)), total };
 }
 
+export async function getPillar(companyId: string, id: string) {
+  const pillar = await PillarModel.findOne({ _id: id, companyId, deletedAt: null })
+    .populate('chamberId', 'name code')
+    .populate('rackId', 'name code')
+    .lean();
+  if (!pillar) throw AppError.notFound('Pillar not found');
+  return occupancy(pillar);
+}
+
 export async function createPillar(companyId: string, input: Record<string, unknown>, actor: AuthUser) {
   const chamberId = String(input.chamberId ?? '');
   const chamber = await ChamberModel.findOne({ _id: chamberId, companyId, deletedAt: null });
@@ -270,7 +279,19 @@ export async function updatePillar(companyId: string, id: string, input: Record<
   if (input.capacity != null && Number(input.capacity) < pillar.occupiedCapacity) {
     throw AppError.badRequest('Capacity cannot be less than occupied quantity');
   }
+  if (input.chamberId) {
+    const chamber = await ChamberModel.findOne({ _id: String(input.chamberId), companyId, deletedAt: null });
+    if (!chamber) throw AppError.notFound('Chamber not found');
+  }
   if (input.rackId === '') input.rackId = null;
+  if (input.rackId) {
+    const chamberId = String(input.chamberId ?? pillar.chamberId);
+    const rack = await RackModel.findOne({ _id: String(input.rackId), companyId, deletedAt: null });
+    if (!rack) throw AppError.notFound('Rack not found');
+    if (String(rack.chamberId) !== chamberId) throw AppError.badRequest('Rack does not belong to the selected chamber');
+  }
+  if (input.series != null) input.series = String(input.series).toUpperCase();
+  if (input.code != null) input.code = String(input.code).toUpperCase();
   Object.assign(pillar, input, { updatedBy: actor.id });
   await pillar.save();
   await writeAudit({

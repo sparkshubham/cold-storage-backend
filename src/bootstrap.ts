@@ -2,15 +2,24 @@ import { connectDatabase } from './config/db.js';
 import { env } from './config/env.js';
 import { runMigrations } from './migrate.js';
 import { UserModel } from './models/User.js';
-import { runSeed } from './seeds/index.js';
+import { runSeed, syncAccessControl } from './seeds/index.js';
 import { logger } from './utils/logger.js';
 
 let preparing: Promise<void> | null = null;
+let accessSynced = false;
+
+export async function syncAccessControlOnce(): Promise<void> {
+  if (accessSynced) return;
+  await connectDatabase();
+  await syncAccessControl();
+  accessSynced = true;
+}
 
 export async function prepareDatabase(): Promise<void> {
   if (!preparing) {
     preparing = (async () => {
       await connectDatabase();
+      await syncAccessControlOnce();
       const seeded = await UserModel.exists({
         email: env.SEED_SUPER_ADMIN_EMAIL.toLowerCase(),
         deletedAt: null,

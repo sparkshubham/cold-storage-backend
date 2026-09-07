@@ -106,6 +106,7 @@ export const SYSTEM_ROLES: Array<{
       'pillar.view',
       'pillar.create',
       'pillar.update',
+      'pillar.delete',
       'inventory.view',
       'inventory.adjust',
       'inventory.transfer',
