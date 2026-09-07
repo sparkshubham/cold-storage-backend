@@ -12,9 +12,10 @@ import { SettingsModel } from '../models/Settings.js';
 import { logger } from '../utils/logger.js';
 import { createCompanyRoles } from '../services/company.service.js';
 import { categoryService, customerService, productService, supplierService, unitService } from '../services/master.service.js';
-import { createChamber, createLocation, createRack } from '../services/storage.service.js';
+import { createChamber, createLocation, createPillar, createRack } from '../services/storage.service.js';
 import { createInward, createOpeningStock } from '../services/inventory.service.js';
 import { CustomerModel } from '../models/Customer.js';
+import { UnitModel } from '../models/Unit.js';
 
 async function seedPermissions() {
   const docs = PERMISSIONS.map((key) => {
@@ -23,6 +24,52 @@ async function seedPermissions() {
   });
   for (const doc of docs) {
     await PermissionModel.updateOne({ key: doc.key }, { $set: doc }, { upsert: true });
+  }
+}
+
+async function syncSystemRoles() {
+  for (const template of SYSTEM_ROLES) {
+    await RoleModel.updateMany(
+      { code: template.code, isSystem: true, deletedAt: null },
+      { $set: { permissionKeys: template.permissionKeys, name: template.name, description: template.description } },
+    );
+  }
+}
+
+async function ensureUnit(
+  companyId: string,
+  input: { name: string; code: string },
+  actor: { id: string; email: string; name: string; role: string; companyId: string; permissions: string[]; isSuperAdmin: boolean },
+) {
+  const existing = await UnitModel.findOne({ companyId, code: input.code.toUpperCase(), deletedAt: null });
+  if (existing) return existing;
+  return unitService.create(companyId, input, actor);
+}
+
+async function ensureDemoUnits() {
+  const company = await CompanyModel.findOne({ email: 'demo@abccold.test', deletedAt: null });
+  const admin = await UserModel.findOne({ email: 'admin@abccold.test', companyId: company?._id });
+  if (!company || !admin) return;
+  const actor = {
+    id: String(admin._id),
+    email: admin.email,
+    name: admin.name,
+    role: admin.roleCode,
+    companyId: String(company._id),
+    permissions: [] as string[],
+    isSuperAdmin: false,
+  };
+  const extras = [
+    { name: 'Numbers', code: 'NOS' },
+    { name: 'Box', code: 'BOX' },
+    { name: 'Tin', code: 'TIN' },
+    { name: 'Bag', code: 'BAG' },
+    { name: 'Bags', code: 'BAGS' },
+    { name: 'Kilogram', code: 'KG' },
+    { name: 'Metric Ton', code: 'MT' },
+  ];
+  for (const unit of extras) {
+    await ensureUnit(String(company._id), unit, actor);
   }
 }
 
@@ -159,7 +206,11 @@ async function seedDemoCompany() {
   if (roleCount === 0) {
     await createCompanyRoles(String(company._id));
   }
-  await SettingsModel.updateOne({ companyId: company._id }, { $set: { scope: 'company' } }, { upsert: true });
+  await SettingsModel.updateOne(
+    { companyId: company._id },
+    { $set: { scope: 'company', handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' } },
+    { upsert: true },
+  );
 
   const passwordHash = await bcrypt.hash('ChangeMe123!', env.BCRYPT_SALT_ROUNDS);
   const roleUsers: Array<{ code: string; name: string; email: string }> = [
@@ -224,9 +275,13 @@ async function seedOperationalData() {
   };
 
   const companyId = String(company._id);
-  const kg = await unitService.create(companyId, { name: 'Kilogram', code: 'KG' }, actor);
-  const mt = await unitService.create(companyId, { name: 'Metric Ton', code: 'MT' }, actor);
-  await unitService.create(companyId, { name: 'Bag', code: 'BAG' }, actor);
+  const kg = await ensureUnit(companyId, { name: 'Kilogram', code: 'KG' }, actor);
+  const mt = await ensureUnit(companyId, { name: 'Metric Ton', code: 'MT' }, actor);
+  await ensureUnit(companyId, { name: 'Bag', code: 'BAG' }, actor);
+  await ensureUnit(companyId, { name: 'Bags', code: 'BAGS' }, actor);
+  await ensureUnit(companyId, { name: 'Numbers', code: 'NOS' }, actor);
+  await ensureUnit(companyId, { name: 'Box', code: 'BOX' }, actor);
+  await ensureUnit(companyId, { name: 'Tin', code: 'TIN' }, actor);
   const veg = await categoryService.create(companyId, { name: 'Frozen Vegetables', code: 'VEG' }, actor);
   await categoryService.create(companyId, { name: 'Dairy', code: 'DRY' }, actor);
   const peas = await productService.create(
@@ -251,7 +306,17 @@ async function seedOperationalData() {
   const chamberTwo = await createChamber(companyId, { name: 'Cold Chamber 2', code: 'C02', capacity: 3000, temperature: -22 }, actor);
   const rack = await createRack(companyId, { name: 'Rack 1', code: 'R01', chamberId: chamber._id, capacity: 2000 }, actor);
   const rackTwo = await createRack(companyId, { name: 'Rack 1', code: 'R01', chamberId: chamberTwo._id, capacity: 1500 }, actor);
-  const location = await createLocation(companyId, { chamberId: chamber._id, rackId: rack._id, section: 'S01', capacity: 1000 }, actor);
+  const pillar = await createPillar(
+    companyId,
+    { name: 'B-Pillar 1', code: 'B01', series: 'B', chamberId: chamber._id, rackId: rack._id, capacity: 1000 },
+    actor,
+  );
+  await createPillar(
+    companyId,
+    { name: 'B-Pillar 2', code: 'B02', series: 'B', chamberId: chamberTwo._id, rackId: rackTwo._id, capacity: 800 },
+    actor,
+  );
+  const location = await createLocation(companyId, { chamberId: chamber._id, rackId: rack._id, pillarId: pillar._id, section: 'S01', capacity: 1000 }, actor);
   await createLocation(companyId, { chamberId: chamber._id, rackId: rack._id, section: 'S02', capacity: 1000 }, actor);
   await createLocation(companyId, { chamberId: chamberTwo._id, rackId: rackTwo._id, section: 'S01', capacity: 800 }, actor);
 
@@ -280,6 +345,8 @@ async function seedOperationalData() {
       locationId: String(location._id),
       quantity: 50,
       unit: 'MT',
+      weight: 50000,
+      weightUnit: 'KG',
       vehicleNumber: 'UP80 AB 1234',
       batchNumber: 'INW-PEAS-02',
       notes: 'Demo inward',
@@ -292,10 +359,12 @@ async function seedOperationalData() {
 export async function runSeed() {
   await seedPermissions();
   await seedPlatformRole();
+  await syncSystemRoles();
   await seedPlans();
   await seedSuperAdmin();
   await seedDemoCompany();
   try {
+    await ensureDemoUnits();
     await seedOperationalData();
   } catch (err) {
     logger.error({ err }, 'Operational seed failed; login accounts were still created');

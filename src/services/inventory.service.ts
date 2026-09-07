@@ -296,6 +296,7 @@ const movementPopulate = [
   { path: 'productId', select: 'name code hsn defaultRate unitId' },
   { path: 'chamberId', select: 'name code' },
   { path: 'rackId', select: 'name code' },
+  { path: 'pillarId', select: 'name code series' },
   { path: 'locationId', select: 'code' },
   { path: 'batchId', select: 'batchNumber lotNumber inwardDate expiryDate' },
   { path: 'invoiceId', select: 'invoiceNumber total status date' },
@@ -326,8 +327,9 @@ export async function listInwards(companyId: string, params: ListParams) {
       .populate('customerId', 'name code')
       .populate('productId', 'name code')
       .populate('locationId', 'code')
+      .populate('pillarId', 'name code')
       .populate('invoiceId', 'invoiceNumber total status')
-      .sort({ createdAt: -1 })
+      .sort({ date: -1, createdAt: -1 })
       .skip(params.skip)
       .limit(params.limit),
     InwardModel.countDocuments(filter),
@@ -347,8 +349,12 @@ export async function createInward(companyId: string, input: Record<string, unkn
           productId: input.productId,
           quantity: Number(input.quantity),
           unit: input.unit,
+          weight: Number(input.weight ?? 0),
+          weightUnit: String(input.weightUnit || 'KG').toUpperCase(),
+          challanNumber: String(input.challanNumber || inwardNumber).toUpperCase(),
           chamberId: input.chamberId,
           rackId: input.rackId,
+          pillarId: input.pillarId || null,
           locationId: input.locationId,
           vehicleNumber: input.vehicleNumber ?? '',
           notes: input.notes ?? '',
@@ -408,8 +414,9 @@ export async function listOutwards(companyId: string, params: ListParams) {
       .populate('customerId', 'name code')
       .populate('productId', 'name code')
       .populate('locationId', 'code')
+      .populate('pillarId', 'name code')
       .populate('invoiceId', 'invoiceNumber total status')
-      .sort({ createdAt: -1 })
+      .sort({ date: -1, createdAt: -1 })
       .skip(params.skip)
       .limit(params.limit),
     OutwardModel.countDocuments(filter),
@@ -429,9 +436,13 @@ export async function createOutward(companyId: string, input: Record<string, unk
           productId: input.productId,
           quantity: Number(input.quantity),
           unit: input.unit,
+          weight: Number(input.weight ?? 0),
+          weightUnit: String(input.weightUnit || 'KG').toUpperCase(),
+          challanNumber: String(input.challanNumber || outwardNumber).toUpperCase(),
           batchId: input.batchId ?? null,
           chamberId: input.chamberId,
           rackId: input.rackId,
+          pillarId: input.pillarId || null,
           locationId: input.locationId,
           vehicleNumber: input.vehicleNumber ?? '',
           notes: input.notes ?? '',
@@ -502,6 +513,9 @@ export async function updateInward(companyId: string, id: string, input: Record<
   if (input.vehicleNumber != null) doc.vehicleNumber = String(input.vehicleNumber);
   if (input.notes != null) doc.notes = String(input.notes);
   if (input.date) doc.date = new Date(String(input.date));
+  if (input.challanNumber != null) doc.challanNumber = String(input.challanNumber).toUpperCase();
+  if (input.weight != null) doc.weight = Number(input.weight);
+  if (input.weightUnit != null) doc.weightUnit = String(input.weightUnit).toUpperCase();
   doc.updatedBy = actor.id as unknown as typeof doc.updatedBy;
   await doc.save();
   await writeAudit({
@@ -523,6 +537,9 @@ export async function updateOutward(companyId: string, id: string, input: Record
   if (input.vehicleNumber != null) doc.vehicleNumber = String(input.vehicleNumber);
   if (input.notes != null) doc.notes = String(input.notes);
   if (input.date) doc.date = new Date(String(input.date));
+  if (input.challanNumber != null) doc.challanNumber = String(input.challanNumber).toUpperCase();
+  if (input.weight != null) doc.weight = Number(input.weight);
+  if (input.weightUnit != null) doc.weightUnit = String(input.weightUnit).toUpperCase();
   doc.updatedBy = actor.id as unknown as typeof doc.updatedBy;
   await doc.save();
   await writeAudit({

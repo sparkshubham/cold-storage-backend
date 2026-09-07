@@ -8,6 +8,7 @@ import { SubscriptionModel } from '../models/Subscription.js';
 import { RoleModel } from '../models/Role.js';
 import { UserModel } from '../models/User.js';
 import { SettingsModel } from '../models/Settings.js';
+import { DEFAULT_UNIT_RATES } from './settings.service.js';
 import { AppError } from '../utils/AppError.js';
 import { writeAudit } from '../utils/audit.js';
 import { escapeRegex } from '../utils/pagination.js';
@@ -144,11 +145,9 @@ export async function createCompany(
         {
           companyId: created._id,
           scope: 'company',
-          unitRates: [
-            { unit: 'MT', storageRatePerUnitPerDay: 20, inwardHandlingRate: 40, outwardHandlingRate: 40 },
-            { unit: 'BAG', storageRatePerUnitPerDay: 2, inwardHandlingRate: 5, outwardHandlingRate: 5 },
-            { unit: 'KG', storageRatePerUnitPerDay: 0.25, inwardHandlingRate: 0.5, outwardHandlingRate: 0.5 },
-          ],
+          unitRates: DEFAULT_UNIT_RATES,
+          handlingChargeBasis: 'weight',
+          handlingWeightUnit: 'KG',
         },
       ],
       { session },

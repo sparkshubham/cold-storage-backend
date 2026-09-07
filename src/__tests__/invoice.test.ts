@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ratesForUnit, storageDaysBetween } from '../services/invoice.service.js';
+import { handlingChargeQty, handlingChargeUnit } from '../utils/billingQty.js';
 
 describe('storage days', () => {
   it('charges at least one day for same-day outward', () => {
@@ -40,5 +41,24 @@ describe('rates by unit', () => {
     const rates = ratesForUnit(settings, 'BAG', { storageRatePerUnitPerDay: 3 });
     expect(rates.storageRatePerUnitPerDay).toBe(3);
     expect(rates.inwardHandlingRate).toBe(5);
+  });
+});
+
+describe('weight-based handling', () => {
+  it('uses slip weight when basis is weight', () => {
+    const slip = { quantity: 10, unit: 'BAG', weight: 500, weightUnit: 'KG' };
+    expect(handlingChargeQty(slip, { handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' })).toBe(500);
+    expect(handlingChargeUnit(slip, { handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' })).toBe('KG');
+  });
+
+  it('falls back to packing qty when weight is missing', () => {
+    const slip = { quantity: 10, unit: 'BAG', weight: 0, weightUnit: 'KG' };
+    expect(handlingChargeQty(slip, { handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' })).toBe(10);
+    expect(handlingChargeUnit(slip, { handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' })).toBe('BAG');
+  });
+
+  it('converts MT weight into KG for handling', () => {
+    const slip = { quantity: 2, unit: 'BAG', weight: 1.5, weightUnit: 'MT' };
+    expect(handlingChargeQty(slip, { handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' })).toBe(1500);
   });
 });

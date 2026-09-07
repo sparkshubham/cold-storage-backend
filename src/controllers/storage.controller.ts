@@ -54,6 +54,32 @@ export const removeRack = asyncHandler(async (req: Request, res: Response) => {
   return success(res, null, 'Rack deleted');
 });
 
+export const listPillars = asyncHandler(async (req: Request, res: Response) => {
+  const pagination = getPagination(req);
+  const result = await storageService.listPillars(requireTenantId(req), {
+    ...pagination,
+    status: queryString(req, 'status'),
+    chamberId: queryString(req, 'chamberId'),
+    rackId: queryString(req, 'rackId'),
+  });
+  return paginated(res, result.data, { ...pagination, total: result.total });
+});
+
+export const createPillar = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await storageService.createPillar(requireTenantId(req), req.body, getAuthUser(req));
+  return created(res, doc);
+});
+
+export const updatePillar = asyncHandler(async (req: Request, res: Response) => {
+  const doc = await storageService.updatePillar(requireTenantId(req), routeParam(req, 'id'), req.body, getAuthUser(req));
+  return success(res, doc, 'Pillar updated');
+});
+
+export const removePillar = asyncHandler(async (req: Request, res: Response) => {
+  await storageService.removePillar(requireTenantId(req), routeParam(req, 'id'), getAuthUser(req));
+  return success(res, null, 'Pillar deleted');
+});
+
 export const listLocations = asyncHandler(async (req: Request, res: Response) => {
   const pagination = getPagination(req);
   const result = await storageService.listLocations(requireTenantId(req), {
@@ -61,6 +87,7 @@ export const listLocations = asyncHandler(async (req: Request, res: Response) =>
     status: queryString(req, 'status'),
     chamberId: queryString(req, 'chamberId'),
     rackId: queryString(req, 'rackId'),
+    pillarId: queryString(req, 'pillarId'),
   });
   return paginated(res, result.data, { ...pagination, total: result.total });
 });

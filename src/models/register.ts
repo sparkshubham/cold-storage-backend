@@ -20,6 +20,7 @@ import { StockTransactionModel } from './StockTransaction.js';
 import { SubscriptionModel } from './Subscription.js';
 import { SupplierModel } from './Supplier.js';
 import { UnitModel } from './Unit.js';
+import { PillarModel } from './Pillar.js';
 import { UserModel } from './User.js';
 
 export const registeredModels = [
@@ -35,6 +36,7 @@ export const registeredModels = [
   LocationModel,
   OutwardModel,
   PermissionModel,
+  PillarModel,
   PlanModel,
   ProductModel,
   RackModel,

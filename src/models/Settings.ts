@@ -15,6 +15,8 @@ const settingsSchema = new Schema(
     storageRatePerUnitPerDay: { type: Number, default: 20 },
     inwardHandlingRate: { type: Number, default: 40 },
     outwardHandlingRate: { type: Number, default: 40 },
+    handlingChargeBasis: { type: String, enum: ['quantity', 'weight'], default: 'weight' },
+    handlingWeightUnit: { type: String, default: 'KG', trim: true, uppercase: true },
     unitRates: {
       type: [
         {

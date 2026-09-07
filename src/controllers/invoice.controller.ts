@@ -17,13 +17,18 @@ export const listInvoices = asyncHandler(async (req: Request, res: Response) => 
 export const previewInvoice = asyncHandler(async (req: Request, res: Response) => {
   const query = req.query as unknown as {
     sourceType: 'inward' | 'outward';
-    sourceId: string;
+    sourceId?: string;
+    sourceIds?: string;
     storageRatePerUnitPerDay?: number;
     inwardHandlingRate?: number;
     outwardHandlingRate?: number;
     gstRate?: number;
+    billDate?: Date;
   };
-  const draft = await invoiceService.previewInvoice(requireTenantId(req), query.sourceType, query.sourceId, query);
+  const draft = await invoiceService.previewInvoice(requireTenantId(req), query.sourceType, query.sourceId ?? '', {
+    ...query,
+    sourceIds: query.sourceIds,
+  });
   return success(res, draft);
 });
 

@@ -4,7 +4,7 @@ import companyRoutes from './company.routes.js';
 import { planRoutes, subscriptionRoutes } from './saas.routes.js';
 import { userRoutes, roleRoutes, auditLogRoutes, dashboardRoutes } from './user.routes.js';
 import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, unitRoutes } from './master.routes.js';
-import { chamberRoutes, locationRoutes, rackRoutes } from './storage.routes.js';
+import { chamberRoutes, locationRoutes, pillarRoutes, rackRoutes } from './storage.routes.js';
 import { inventoryRoutes, inwardRoutes, outwardRoutes, stockTransactionRoutes } from './inventory.routes.js';
 import { invoiceRoutes } from './invoice.routes.js';
 import { settingsRoutes } from './settings.routes.js';
@@ -26,6 +26,7 @@ export function createApiRouter() {
   router.use('/products', productRoutes);
   router.use('/chambers', chamberRoutes);
   router.use('/racks', rackRoutes);
+  router.use('/pillars', pillarRoutes);
   router.use('/locations', locationRoutes);
   router.use('/inventory', inventoryRoutes);
   router.use('/stock-transactions', stockTransactionRoutes);

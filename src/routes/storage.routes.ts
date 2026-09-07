@@ -8,6 +8,8 @@ import {
   chamberUpdateSchema,
   locationSchema,
   locationUpdateSchema,
+  pillarSchema,
+  pillarUpdateSchema,
   rackSchema,
   rackUpdateSchema,
 } from '../validators/schemas.js';
@@ -27,6 +29,13 @@ racks.post('/', authorize('rack.create'), validate(rackSchema), storageControlle
 racks.patch('/:id', authorize('rack.update'), validate(rackUpdateSchema), storageController.updateRack);
 racks.delete('/:id', authorize('rack.delete'), storageController.removeRack);
 
+const pillars = Router();
+pillars.use(authenticate, tenantGuard, requireCompanyContext);
+pillars.get('/', authorize('pillar.view'), storageController.listPillars);
+pillars.post('/', authorize('pillar.create'), validate(pillarSchema), storageController.createPillar);
+pillars.patch('/:id', authorize('pillar.update'), validate(pillarUpdateSchema), storageController.updatePillar);
+pillars.delete('/:id', authorize('pillar.delete'), storageController.removePillar);
+
 const locations = Router();
 locations.use(authenticate, tenantGuard, requireCompanyContext);
 locations.get('/', authorize('location.view'), storageController.listLocations);
@@ -34,4 +43,4 @@ locations.post('/', authorize('location.create'), validate(locationSchema), stor
 locations.patch('/:id', authorize('location.update'), validate(locationUpdateSchema), storageController.updateLocation);
 locations.delete('/:id', authorize('location.delete'), storageController.removeLocation);
 
-export { chambers as chamberRoutes, racks as rackRoutes, locations as locationRoutes };
+export { chambers as chamberRoutes, racks as rackRoutes, pillars as pillarRoutes, locations as locationRoutes };

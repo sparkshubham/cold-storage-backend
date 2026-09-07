@@ -191,9 +191,20 @@ export const rackSchema = z.object({
   status: statusSchema,
 });
 
+export const pillarSchema = z.object({
+  name: z.string().min(1),
+  code: z.string().optional(),
+  chamberId: z.string().min(1),
+  rackId: z.string().optional().nullable(),
+  series: z.string().optional().default('B'),
+  capacity: z.coerce.number().min(0.0001),
+  status: statusSchema,
+});
+
 export const locationSchema = z.object({
   chamberId: z.string().min(1),
   rackId: z.string().min(1),
+  pillarId: z.string().optional().nullable(),
   section: z.string().optional().default('S01'),
   code: z.string().optional(),
   capacity: z.coerce.number().min(0.0001),
@@ -205,9 +216,13 @@ const stockMovementSchema = z.object({
   productId: z.string().min(1),
   chamberId: z.string().optional(),
   rackId: z.string().optional(),
+  pillarId: z.string().optional().nullable(),
   locationId: z.string().min(1),
   quantity: z.coerce.number().positive(),
   unit: z.string().min(1),
+  weight: z.coerce.number().min(0).optional().default(0),
+  weightUnit: z.string().optional().default('KG'),
+  challanNumber: z.string().optional().default(''),
   batchId: z.string().optional().nullable(),
   batchNumber: z.string().optional().default(''),
   lotNumber: z.string().optional().default(''),
@@ -231,6 +246,7 @@ export const supplierUpdateSchema = supplierSchema.partial();
 export const productUpdateSchema = productSchema.partial();
 export const chamberUpdateSchema = chamberSchema.partial();
 export const rackUpdateSchema = rackSchema.partial();
+export const pillarUpdateSchema = pillarSchema.partial();
 export const locationUpdateSchema = locationSchema.partial();
 
 const invoiceRatesSchema = {
@@ -242,16 +258,27 @@ const invoiceRatesSchema = {
 
 export const invoicePreviewQuerySchema = z.object({
   sourceType: z.enum(['inward', 'outward']),
-  sourceId: z.string().min(1),
+  sourceId: z.string().optional().default(''),
+  sourceIds: z.string().optional().default(''),
+  billDate: z.coerce.date().optional(),
   ...invoiceRatesSchema,
+}).superRefine((value, ctx) => {
+  if (!value.sourceId && !value.sourceIds) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Select at least one challan', path: ['sourceId'] });
+  }
 });
 
 export const invoiceGenerateSchema = z.object({
   sourceType: z.enum(['inward', 'outward']),
-  sourceId: z.string().min(1),
+  sourceId: z.string().optional().default(''),
+  sourceIds: z.array(z.string().min(1)).optional().default([]),
   notes: z.string().optional().default(''),
   date: z.coerce.date().optional(),
   ...invoiceRatesSchema,
+}).superRefine((value, ctx) => {
+  if (!value.sourceId && !value.sourceIds.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Select at least one challan', path: ['sourceId'] });
+  }
 });
 
 export const unitRateRowSchema = z.object({
@@ -268,6 +295,8 @@ export const companySettingsSchema = z
     storageRatePerUnitPerDay: z.coerce.number().min(0).optional(),
     inwardHandlingRate: z.coerce.number().min(0).optional(),
     outwardHandlingRate: z.coerce.number().min(0).optional(),
+    handlingChargeBasis: z.enum(['quantity', 'weight']).optional(),
+    handlingWeightUnit: z.string().trim().min(1).toUpperCase().optional(),
     unitRates: z.array(unitRateRowSchema).optional(),
   })
   .superRefine((value, ctx) => {
@@ -289,6 +318,9 @@ export const movementMetaSchema = z.object({
   vehicleNumber: z.string().optional(),
   notes: z.string().optional(),
   date: z.coerce.date().optional(),
+  challanNumber: z.string().optional(),
+  weight: z.coerce.number().min(0).optional(),
+  weightUnit: z.string().optional(),
 });
 
 export const invoiceNotesSchema = z.object({
