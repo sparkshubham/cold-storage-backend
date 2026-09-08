@@ -298,6 +298,12 @@ export const companySettingsSchema = z
     handlingChargeBasis: z.enum(['quantity', 'weight']).optional(),
     handlingWeightUnit: z.string().trim().min(1).toUpperCase().optional(),
     unitRates: z.array(unitRateRowSchema).optional(),
+    bankAccountName: z.string().optional(),
+    bankName: z.string().optional(),
+    bankAccountNo: z.string().optional(),
+    bankIfsc: z.string().optional(),
+    phones: z.string().optional(),
+    jurisdictionNote: z.string().optional(),
   })
   .superRefine((value, ctx) => {
     if (!value.unitRates) return;

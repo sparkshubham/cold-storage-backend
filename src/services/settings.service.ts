@@ -29,10 +29,35 @@ export type CompanySettings = {
     inwardHandlingRate: number;
     outwardHandlingRate: number;
   }>;
+  values?: Record<string, unknown>;
+  bankAccountName?: string;
+  bankName?: string;
+  bankAccountNo?: string;
+  bankIfsc?: string;
+  phones?: string;
+  jurisdictionNote?: string;
 };
 
 function asUnitRates(value: unknown): CompanySettings['unitRates'] {
   return Array.isArray(value) ? (value as CompanySettings['unitRates']) : [];
+}
+
+function asValues(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function withBillExtras(settings: Record<string, unknown>): CompanySettings {
+  const values = asValues(settings.values);
+  return {
+    ...(serialize(settings) as unknown as CompanySettings),
+    bankAccountName: String(values.bankAccountName ?? ''),
+    bankName: String(values.bankName ?? ''),
+    bankAccountNo: String(values.bankAccountNo ?? ''),
+    bankIfsc: String(values.bankIfsc ?? ''),
+    phones: String(values.phones ?? ''),
+    jurisdictionNote: String(values.jurisdictionNote ?? 'Subject to local jurisdiction'),
+    values,
+  };
 }
 
 export async function getSettings(companyId: string) {
@@ -56,13 +81,20 @@ export async function getSettings(companyId: string) {
       });
     }
   }
-  return serialize(settings) as unknown as CompanySettings;
+  return withBillExtras(settings as unknown as Record<string, unknown>);
 }
 
 export async function updateSettings(companyId: string, input: Record<string, unknown>, actor: AuthUser) {
   const existing = await getSettings(companyId);
+  const prevValues = asValues((existing as { values?: unknown }).values);
+  const nextValues = { ...prevValues };
+  for (const key of ['bankAccountName', 'bankName', 'bankAccountNo', 'bankIfsc', 'phones', 'jurisdictionNote'] as const) {
+    if (input[key] != null) nextValues[key] = String(input[key]);
+  }
+
   const data: Record<string, unknown> = {
     scope: 'company',
+    values: nextValues,
   };
   if (input.invoicePrefix != null) data.invoicePrefix = String(input.invoicePrefix).toUpperCase();
   if (input.defaultGstRate != null) data.defaultGstRate = Number(input.defaultGstRate);
@@ -79,6 +111,7 @@ export async function updateSettings(companyId: string, input: Record<string, un
       companyId,
       scope: 'company',
       unitRates: input.unitRates ?? DEFAULT_UNIT_RATES,
+      values: nextValues,
       invoicePrefix: input.invoicePrefix != null ? String(input.invoicePrefix).toUpperCase() : undefined,
       defaultGstRate: input.defaultGstRate != null ? Number(input.defaultGstRate) : undefined,
       storageRatePerUnitPerDay: input.storageRatePerUnitPerDay != null ? Number(input.storageRatePerUnitPerDay) : undefined,
@@ -90,7 +123,7 @@ export async function updateSettings(companyId: string, input: Record<string, un
     update: data,
   });
 
-  const serialized = serialize(settings) as unknown as CompanySettings;
+  const serialized = withBillExtras(settings as unknown as Record<string, unknown>);
   await writeAudit({
     companyId,
     userId: actor.id,

@@ -30,6 +30,10 @@ type InvoiceItem = {
   challanNumber?: string;
   sourceId?: string;
   lineType?: string;
+  periodFrom?: Date | null;
+  periodTo?: Date | null;
+  rentPerUnitPerMonth?: number;
+  months?: number;
 };
 
 function round2(value: number) {
@@ -45,6 +49,23 @@ function startOfDay(value: Date) {
 export function storageDaysBetween(from: Date, to: Date) {
   const days = Math.round((startOfDay(to).getTime() - startOfDay(from).getTime()) / 86_400_000);
   return Math.max(1, days);
+}
+
+/** Cold-storage rent is billed per bag/unit per month (ceil of days/30, min 1). */
+export function storageMonthsBetween(from: Date, to: Date) {
+  return Math.max(1, Math.ceil(storageDaysBetween(from, to) / 30));
+}
+
+function addMonthsMinusOneDay(from: Date, months: number) {
+  const end = new Date(startOfDay(from));
+  end.setMonth(end.getMonth() + months);
+  end.setDate(end.getDate() - 1);
+  return end;
+}
+
+/** Bill date style like 21-8-26 (matches printed cold-storage bills). */
+export function formatBillDateLabel(value: Date) {
+  return `${value.getDate()}-${value.getMonth() + 1}-${String(value.getFullYear()).slice(-2)}`;
 }
 
 type SettingsLike = {
@@ -218,21 +239,33 @@ export async function buildInvoiceDraftForSources(
     if (sourceType === 'outward') {
       const from = relatedInward ? new Date(String(relatedInward.date)) : slipDate;
       const days = storageDaysBetween(from, slipDate);
+      const months = storageMonthsBetween(from, slipDate);
+      const periodTo = addMonthsMinusOneDay(from, months);
       storageDays += days;
       if (!storageFrom || from < storageFrom) storageFrom = from;
-      if (!storageTo || slipDate > storageTo) storageTo = slipDate;
-      const rate = round2(packingRates.storageRatePerUnitPerDay * days);
+      if (!storageTo || periodTo > storageTo) storageTo = periodTo;
+      const monthlyRate = packingRates.storageRatePerUnitPerDay;
+      const challanRef =
+        String(
+          (relatedInward as { challanNumber?: string; inwardNumber?: string } | null)?.challanNumber
+            || (relatedInward as { inwardNumber?: string } | null)?.inwardNumber
+            || challanNumber,
+        );
       items.push({
-        description: `${formatDateLabel(slipDate)} · ${challanNumber} · ${productName} · storage ${days} day${days === 1 ? '' : 's'}`,
+        description: `${formatBillDateLabel(from)} से ${formatBillDateLabel(periodTo)} तक किराया ${productName}`,
         hsn,
         quantity: slipQty,
         unit: slipUnit,
-        rate,
-        amount: round2(slipQty * rate),
-        date: slipDate,
-        challanNumber,
+        rate: monthlyRate,
+        amount: round2(slipQty * monthlyRate * months),
+        date: from,
+        challanNumber: challanRef,
         sourceId: idOf(source),
         lineType: 'storage',
+        periodFrom: from,
+        periodTo,
+        rentPerUnitPerMonth: monthlyRate,
+        months,
       });
     }
 
@@ -295,6 +328,10 @@ export async function buildInvoiceDraftForSources(
 
   const subtotal = round2(items.reduce((sum, item) => sum + item.amount, 0));
   const gstAmount = round2(subtotal * (gstRate / 100));
+  const cgstRate = round2(gstRate / 2);
+  const sgstRate = round2(gstRate / 2);
+  const cgstAmount = round2(subtotal * (cgstRate / 100));
+  const sgstAmount = round2(gstAmount - cgstAmount);
   const total = round2(subtotal + gstAmount);
   const first = slips[0];
   const last = slips[slips.length - 1];
@@ -306,6 +343,9 @@ export async function buildInvoiceDraftForSources(
         || '',
     ),
   );
+  const storageItems = items.filter((item) => item.lineType === 'storage');
+  const totalBags = round2(storageItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0));
+  const rentPerBagPerMonth = storageItems[0]?.rentPerUnitPerMonth ?? displayRates.storageRatePerUnitPerDay;
 
   return {
     sourceType,
@@ -332,7 +372,13 @@ export async function buildInvoiceDraftForSources(
     subtotal,
     gstRate,
     gstAmount,
+    cgstRate,
+    sgstRate,
+    cgstAmount,
+    sgstAmount,
     total,
+    totalBags,
+    rentPerBagPerMonth,
     alreadyBilled: Boolean(existing),
     existingInvoiceId: existing ? existing.id : null,
     existingInvoiceNumber: existing?.invoiceNumber ?? null,
@@ -371,7 +417,7 @@ export async function buildInvoiceDraftForSources(
 }
 
 function formatDateLabel(value: Date) {
-  return value.toLocaleDateString('en-IN');
+  return formatBillDateLabel(value);
 }
 
 export async function previewInvoice(
@@ -512,26 +558,62 @@ export async function getInvoice(companyId: string, id: string) {
     },
   });
   if (!invoice) throw AppError.notFound('Invoice not found');
-  const company = await prisma.company.findFirst({
-    where: { id: companyId },
-    select: {
-      id: true,
-      name: true,
-      legalName: true,
-      mobile: true,
-      email: true,
-      gstin: true,
-      pan: true,
-      addressLine1: true,
-      addressLine2: true,
-      addressCity: true,
-      addressState: true,
-      addressPincode: true,
-    },
-  });
+  const [company, settings] = await Promise.all([
+    prisma.company.findFirst({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        legalName: true,
+        mobile: true,
+        email: true,
+        gstin: true,
+        pan: true,
+        addressLine1: true,
+        addressLine2: true,
+        addressCity: true,
+        addressState: true,
+        addressPincode: true,
+      },
+    }),
+    getSettings(companyId),
+  ]);
+  const values = ((settings as { values?: Record<string, unknown> }).values ?? {}) as Record<string, unknown>;
+  const gstRate = Number(invoice.gstRate ?? 0);
+  const subtotal = Number(invoice.subtotal ?? 0);
+  const cgstRate = round2(gstRate / 2);
+  const sgstRate = round2(gstRate / 2);
+  const cgstAmount = round2(subtotal * (cgstRate / 100));
+  const sgstAmount = round2(Number(invoice.gstAmount ?? 0) - cgstAmount);
+  const items = (Array.isArray(invoice.items) ? invoice.items : []) as Array<Record<string, unknown>>;
+  const storageItems = items.filter((item) => item.lineType === 'storage');
+  const totalBags = storageItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+  const rentPerBagPerMonth = Number(
+    storageItems[0]?.rentPerUnitPerMonth
+      ?? storageItems[0]?.rate
+      ?? (settings as { storageRatePerUnitPerDay?: number }).storageRatePerUnitPerDay
+      ?? 0,
+  );
+
   return {
-    invoice: withPopulated(invoice as unknown as Record<string, unknown>, invoicePopulateMap),
+    invoice: {
+      ...withPopulated(invoice as unknown as Record<string, unknown>, invoicePopulateMap),
+      cgstRate,
+      sgstRate,
+      cgstAmount,
+      sgstAmount,
+      totalBags,
+      rentPerBagPerMonth,
+    },
     company: company ? serialize(company) : null,
+    billSettings: {
+      bankAccountName: String(values.bankAccountName ?? ''),
+      bankName: String(values.bankName ?? ''),
+      bankAccountNo: String(values.bankAccountNo ?? ''),
+      bankIfsc: String(values.bankIfsc ?? ''),
+      phones: String(values.phones ?? ''),
+      jurisdictionNote: String(values.jurisdictionNote ?? 'Subject to local jurisdiction'),
+    },
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ratesForUnit, storageDaysBetween } from '../services/invoice.service.js';
+import { ratesForUnit, storageDaysBetween, storageMonthsBetween } from '../services/invoice.service.js';
 import { handlingChargeQty, handlingChargeUnit } from '../utils/billingQty.js';
 
 describe('storage days', () => {
@@ -9,6 +9,16 @@ describe('storage days', () => {
 
   it('counts calendar days from inward to outward', () => {
     expect(storageDaysBetween(new Date('2026-08-01'), new Date('2026-08-11'))).toBe(10);
+  });
+});
+
+describe('storage months', () => {
+  it('bills one month for a ~30 day stay', () => {
+    expect(storageMonthsBetween(new Date('2026-07-20'), new Date('2026-08-19'))).toBe(1);
+  });
+
+  it('ceils partial months', () => {
+    expect(storageMonthsBetween(new Date('2026-07-01'), new Date('2026-08-15'))).toBe(2);
   });
 });
 
