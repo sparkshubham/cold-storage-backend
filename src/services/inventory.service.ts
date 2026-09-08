@@ -37,8 +37,10 @@ async function applyOccupancy(companyId: string, locationId: string, delta: numb
     mapStockError(err, delta > 0);
   }
   await db.location.update({ where: { id: location.id }, data: { occupiedCapacity: locationOccupied! } });
-  await db.rack.update({ where: { id: rack.id }, data: { occupiedCapacity: rackOccupied! } });
-  await db.chamber.update({ where: { id: chamber.id }, data: { occupiedCapacity: chamberOccupied! } });
+  await Promise.all([
+    db.rack.update({ where: { id: rack.id }, data: { occupiedCapacity: rackOccupied! } }),
+    db.chamber.update({ where: { id: chamber.id }, data: { occupiedCapacity: chamberOccupied! } }),
+  ]);
   return { location, rack, chamber };
 }
 

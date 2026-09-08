@@ -292,13 +292,37 @@ async function seedDemoCompany() {
   logger.info({ company: company.name }, 'Demo company seeded');
 }
 
-async function seedOperationalData() {
+/** Wipe demo-tenant operational rows so seed can recreate masters/stock. */
+async function resetDemoOperationalData(companyId: string) {
+  // Delete in FK-safe order (no onDelete: Cascade on these relations).
+  await prisma.stockTransaction.deleteMany({ where: { companyId } });
+  await prisma.inventory.deleteMany({ where: { companyId } });
+  await prisma.inward.deleteMany({ where: { companyId } });
+  await prisma.outward.deleteMany({ where: { companyId } });
+  await prisma.invoice.deleteMany({ where: { companyId } });
+  await prisma.batch.deleteMany({ where: { companyId } });
+  await prisma.location.deleteMany({ where: { companyId } });
+  await prisma.pillar.deleteMany({ where: { companyId } });
+  await prisma.rack.deleteMany({ where: { companyId } });
+  await prisma.chamber.deleteMany({ where: { companyId } });
+  await prisma.product.deleteMany({ where: { companyId } });
+  await prisma.category.deleteMany({ where: { companyId } });
+  await prisma.unit.deleteMany({ where: { companyId } });
+  await prisma.customer.deleteMany({ where: { companyId } });
+  await prisma.supplier.deleteMany({ where: { companyId } });
+  logger.info({ companyId }, 'Demo operational data reset');
+}
+
+async function seedOperationalData(force = false) {
   const company = await prisma.company.findFirst({ where: notDeleted({ email: 'demo@abccold.test' }) });
   if (!company) return;
   const existingCustomers = await prisma.customer.count({ where: notDeleted({ companyId: company.id }) });
-  if (existingCustomers > 0) {
-    logger.info('Demo operational data already exists');
+  if (existingCustomers > 0 && !force) {
+    logger.info('Demo operational data already exists (pass --force or SEED_FORCE=1 to recreate)');
     return;
+  }
+  if (force && existingCustomers > 0) {
+    await resetDemoOperationalData(company.id);
   }
 
   const admin = await prisma.user.findFirst({ where: { email: 'admin@abccold.test', companyId: company.id } });
@@ -460,7 +484,8 @@ async function seedOperationalData() {
   logger.info('Demo operational data seeded');
 }
 
-export async function runSeed() {
+export async function runSeed(options: { force?: boolean } = {}) {
+  const force = Boolean(options.force || env.SEED_FORCE);
   await seedPermissions();
   await seedPlatformRole();
   await syncSystemRoles();
@@ -469,9 +494,10 @@ export async function runSeed() {
   await seedDemoCompany();
   try {
     await ensureDemoUnits();
-    await seedOperationalData();
+    await seedOperationalData(force);
   } catch (err) {
     logger.error({ err }, 'Operational seed failed; login accounts were still created');
+    throw err;
   }
-  logger.info('Seed completed');
+  logger.info({ force }, 'Seed completed');
 }

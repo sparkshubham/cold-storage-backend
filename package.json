@@ -15,6 +15,7 @@
     "prisma:deploy": "node scripts/prisma.mjs migrate deploy",
     "migrate": "node scripts/prisma.mjs migrate deploy",
     "seed": "tsx src/seeds/cli.ts",
+    "seed:force": "tsx src/seeds/cli.ts --force",
     "prepare-db": "tsx src/scripts/prepareDb.ts",
     "test": "vitest run",
     "test:watch": "vitest",
