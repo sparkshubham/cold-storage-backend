@@ -9,6 +9,7 @@ async function main() {
     return;
   }
 
+  console.log(env.DATABASE_URL);
   await connectDatabase();
   const { prepareDatabase } = await import('./bootstrap.js');
   await prepareDatabase();
