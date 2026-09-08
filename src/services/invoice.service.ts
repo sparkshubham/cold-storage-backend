@@ -17,6 +17,7 @@ type RateInput = {
   inwardHandlingRate?: number;
   outwardHandlingRate?: number;
   gstRate?: number;
+  locale?: 'en' | 'hi';
 };
 
 type InvoiceItem = {
@@ -251,8 +252,14 @@ export async function buildInvoiceDraftForSources(
             || (relatedInward as { inwardNumber?: string } | null)?.inwardNumber
             || challanNumber,
         );
+      const fromLabel = formatBillDateLabel(from);
+      const toLabel = formatBillDateLabel(periodTo);
+      const rentDescription =
+        rates.locale === 'en'
+          ? `Rent for ${productName} from ${fromLabel} to ${toLabel}`
+          : `${fromLabel} से ${toLabel} तक किराया ${productName}`;
       items.push({
-        description: `${formatBillDateLabel(from)} से ${formatBillDateLabel(periodTo)} तक किराया ${productName}`,
+        description: rentDescription,
         hsn,
         quantity: slipQty,
         unit: slipUnit,
@@ -286,8 +293,9 @@ export async function buildInvoiceDraftForSources(
                 || (relatedInward as { inwardNumber?: string })?.inwardNumber
                 || challanNumber,
             );
+      const inwardHandlingLabel = rates.locale === 'hi' ? 'इनवर्ड हैंडलिंग' : 'inward handling';
       items.push({
-        description: `${formatDateLabel(handleDate)} · ${handleChallan} · ${productName} · inward handling`,
+        description: `${formatDateLabel(handleDate)} · ${handleChallan} · ${productName} · ${inwardHandlingLabel}`,
         hsn,
         quantity: handleQty,
         unit: handleUnit || slipUnit,
@@ -301,8 +309,9 @@ export async function buildInvoiceDraftForSources(
     }
 
     if (sourceType === 'outward' && handleRates.outwardHandlingRate > 0 && handleQty > 0) {
+      const outwardHandlingLabel = rates.locale === 'hi' ? 'आउटवर्ड हैंडलिंग' : 'outward handling';
       items.push({
-        description: `${formatDateLabel(slipDate)} · ${challanNumber} · ${productName} · outward handling`,
+        description: `${formatDateLabel(slipDate)} · ${challanNumber} · ${productName} · ${outwardHandlingLabel}`,
         hsn,
         quantity: handleQty,
         unit: handleUnit || slipUnit,

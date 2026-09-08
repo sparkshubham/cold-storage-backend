@@ -24,6 +24,7 @@ export const previewInvoice = asyncHandler(async (req: Request, res: Response) =
     outwardHandlingRate?: number;
     gstRate?: number;
     billDate?: Date;
+    locale?: 'en' | 'hi';
   };
   const draft = await invoiceService.previewInvoice(requireTenantId(req), query.sourceType, query.sourceId ?? '', {
     ...query,

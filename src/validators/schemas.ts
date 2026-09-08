@@ -261,6 +261,7 @@ export const invoicePreviewQuerySchema = z.object({
   sourceId: z.string().optional().default(''),
   sourceIds: z.string().optional().default(''),
   billDate: z.coerce.date().optional(),
+  locale: z.enum(['en', 'hi']).optional(),
   ...invoiceRatesSchema,
 }).superRefine((value, ctx) => {
   if (!value.sourceId && !value.sourceIds) {
@@ -274,6 +275,7 @@ export const invoiceGenerateSchema = z.object({
   sourceIds: z.array(z.string().min(1)).optional().default([]),
   notes: z.string().optional().default(''),
   date: z.coerce.date().optional(),
+  locale: z.enum(['en', 'hi']).optional(),
   ...invoiceRatesSchema,
 }).superRefine((value, ctx) => {
   if (!value.sourceId && !value.sourceIds.length) {
