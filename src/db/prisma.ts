@@ -10,8 +10,7 @@ export const prisma =
     log: env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
 
-if (env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
-}
+// Reuse across hot reloads and Vercel warm invocations (avoids reconnect latency).
+globalForPrisma.prisma = prisma;
 
 export type DbClient = PrismaClient;

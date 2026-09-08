@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { rateLimit } from 'express-rate-limit';
 import { env } from './config/env.js';
 import { corsMiddleware } from './config/cors.js';
-import { connectDatabase, describeDatabaseError } from './config/db.js';
+import { connectDatabase, describeDatabaseError, pingDatabase } from './config/db.js';
 import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { AppError } from './utils/AppError.js';
@@ -43,9 +43,8 @@ async function ensureDatabase(req: express.Request, _res: express.Response, next
     return;
   }
   try {
+    // Connect only — never sync permissions / SELECT 1 on the hot path.
     await connectDatabase();
-    const { syncAccessControlOnce } = await import('./bootstrap.js');
-    await syncAccessControlOnce();
     next();
   } catch (err) {
     logger.error({ err }, 'PostgreSQL connection failed');
@@ -92,7 +91,7 @@ export function createApp() {
   app.get('/health', async (_req, res) => {
     let database: 'connected' | 'disconnected' = 'disconnected';
     try {
-      await connectDatabase();
+      await pingDatabase();
       database = 'connected';
     } catch (err) {
       logger.error({ err }, 'Health check could not reach PostgreSQL');

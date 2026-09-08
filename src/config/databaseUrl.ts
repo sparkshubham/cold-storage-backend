@@ -37,9 +37,12 @@ export function normalizeDatabaseUrl(raw: string, options: { pooled?: boolean } 
   if (!isLocal && !/[?&]connect_timeout=/i.test(url)) {
     url += url.includes('?') ? '&connect_timeout=30' : '?connect_timeout=30';
   }
-  // Serverless-friendly: keep pools tiny (Vercel / Supabase Session pooler).
+  // Serverless (Vercel): keep pools tiny. Long-lived Node can use more for parallel queries.
+  const isVercel = Boolean(process.env.VERCEL);
   if ((options.pooled || /pooler\.supabase\.com/i.test(url)) && !/[?&]connection_limit=/i.test(url)) {
-    url += url.includes('?') ? '&connection_limit=1' : '?connection_limit=1';
+    url += url.includes('?')
+      ? `&connection_limit=${isVercel ? 1 : 5}`
+      : `?connection_limit=${isVercel ? 1 : 5}`;
   }
 
   return url;

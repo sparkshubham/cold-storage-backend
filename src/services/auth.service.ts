@@ -18,19 +18,21 @@ function addDays(date: Date, days: number) {
 }
 
 async function buildAuthPayload(userId: string) {
-  const user = await prisma.user.findFirst({ where: notDeleted({ id: userId }) });
+  const user = await prisma.user.findFirst({
+    where: notDeleted({ id: userId }),
+    include: { role: { select: { permissionKeys: true } } },
+  });
   if (!user) {
     throw AppError.unauthorized('User not found');
   }
-  const role = await prisma.role.findFirst({ where: { id: user.roleId } });
   return {
     user,
-    role,
+    role: user.role,
     accessToken: signAccessToken({
       sub: user.id,
       role: user.roleCode,
       companyId: user.companyId ?? null,
-      permissions: role?.permissionKeys ?? [],
+      permissions: user.role?.permissionKeys ?? [],
     }),
   };
 }

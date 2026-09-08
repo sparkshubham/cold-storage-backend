@@ -2,20 +2,32 @@ import { prisma } from '../db/prisma.js';
 import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
-let connected = false;
+let ready: Promise<typeof prisma> | null = null;
 
+/** Cheap connect — no per-request ping (remote Supabase RTT is expensive). */
 export async function connectDatabase() {
-  // Verify the pool with a real query — $connect() alone can succeed with a stale client.
-  await prisma.$queryRawUnsafe('SELECT 1');
-  if (!connected) {
-    connected = true;
-    logger.info({ host: safeDbHost(env.DATABASE_URL) }, 'PostgreSQL connected');
+  if (!ready) {
+    ready = (async () => {
+      await prisma.$connect();
+      logger.info({ host: safeDbHost(env.DATABASE_URL) }, 'PostgreSQL connected');
+      return prisma;
+    })().catch((err) => {
+      ready = null;
+      throw err;
+    });
   }
+  return ready;
+}
+
+/** Explicit liveness check for /health only. */
+export async function pingDatabase() {
+  await connectDatabase();
+  await prisma.$queryRawUnsafe('SELECT 1');
   return prisma;
 }
 
 export async function disconnectDatabase() {
-  connected = false;
+  ready = null;
   await prisma.$disconnect();
 }
 

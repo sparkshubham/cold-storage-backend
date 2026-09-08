@@ -13,27 +13,27 @@ import { createInward, createOpeningStock } from '../services/inventory.service.
 import type { AuthUser } from '../types/auth.js';
 
 async function seedPermissions() {
-  for (const key of PERMISSIONS) {
+  const rows = PERMISSIONS.map((key) => {
     const [module, action] = key.split('.');
-    await prisma.permission.upsert({
-      where: { key },
-      create: { key, module, action, description: key },
-      update: { module, action, description: key },
-    });
-  }
+    return { key, module, action, description: key };
+  });
+  // One round-trip instead of N sequential upserts (critical over remote Supabase).
+  await prisma.permission.createMany({ data: rows, skipDuplicates: true });
 }
 
 export async function syncSystemRoles() {
-  for (const template of SYSTEM_ROLES) {
-    await prisma.role.updateMany({
-      where: { code: template.code, isSystem: true, deletedAt: null },
-      data: {
-        permissionKeys: template.permissionKeys,
-        name: template.name,
-        description: template.description,
-      },
-    });
-  }
+  await Promise.all(
+    SYSTEM_ROLES.map((template) =>
+      prisma.role.updateMany({
+        where: { code: template.code, isSystem: true, deletedAt: null },
+        data: {
+          permissionKeys: template.permissionKeys,
+          name: template.name,
+          description: template.description,
+        },
+      }),
+    ),
+  );
 }
 
 /** Keep permission catalog + system role keys current without re-seeding demo data. */
