@@ -2,7 +2,9 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-dotenv.config();
-
 const dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(dirname, '../../.env') });
+const serverEnv = path.resolve(dirname, '../../.env');
+
+// Prefer server/.env over cwd/.env so workspace root runs still pick up the API config.
+dotenv.config({ path: serverEnv });
+dotenv.config();

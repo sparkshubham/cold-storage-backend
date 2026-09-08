@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { rateLimit } from 'express-rate-limit';
 import { env } from './config/env.js';
 import { corsMiddleware } from './config/cors.js';
-import { connectDatabase } from './config/db.js';
+import { connectDatabase, describeDatabaseError } from './config/db.js';
 import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { AppError } from './utils/AppError.js';
@@ -49,11 +49,7 @@ async function ensureDatabase(req: express.Request, _res: express.Response, next
     next();
   } catch (err) {
     logger.error({ err }, 'PostgreSQL connection failed');
-    const hint =
-      err instanceof Error && (err.message.includes('DATABASE_URL') || err.message.includes('POSTGRES'))
-        ? err.message
-        : 'Database unavailable. Set DATABASE_URL to a reachable Postgres connection string.';
-    next(new AppError(hint, 503));
+    next(new AppError(describeDatabaseError(err), 503));
   }
 }
 
