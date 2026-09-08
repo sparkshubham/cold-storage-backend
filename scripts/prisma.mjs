@@ -69,6 +69,12 @@ const raw =
 if (raw) {
   process.env.DATABASE_URL = normalizeDatabaseUrl(raw);
 }
+const rawDirect = process.env.DIRECT_URL || process.env.POSTGRES_URL_NON_POOLING || '';
+if (rawDirect) {
+  process.env.DIRECT_URL = normalizeDatabaseUrl(rawDirect);
+} else if (process.env.DATABASE_URL) {
+  process.env.DIRECT_URL = process.env.DATABASE_URL;
+}
 
 const args = process.argv.slice(2);
 const result = spawnSync('npx', ['prisma', ...args], {

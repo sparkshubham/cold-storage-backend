@@ -35,7 +35,7 @@ export function describeDatabaseError(err: unknown): string {
     return 'PostgreSQL authentication failed. Update DATABASE_URL password (URL-encode @ as %40) and restart the server / Vercel env.';
   }
   if (code === 'P1001' || /Can't reach database server/i.test(message)) {
-    return 'Cannot reach PostgreSQL. Check host/port, network, and that the Supabase project is not paused.';
+    return 'Cannot reach PostgreSQL. Use the Supabase Session pooler URL (*.pooler.supabase.com:5432) for Vercel, confirm the project is not paused, and set DATABASE_URL + DIRECT_URL.';
   }
   if (code === 'P1017' || /Server has closed the connection/i.test(message)) {
     return 'PostgreSQL closed the connection. Retry; if it persists, check SSL (sslmode=require) and pool settings.';

@@ -17,6 +17,7 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default('https://cold-storage-five.vercel.app'),
   API_PREFIX: z.string().default('/api/v1'),
   DATABASE_URL: z.string().default('postgresql://postgres:postgres@127.0.0.1:5432/coldflow?schema=public'),
+  DIRECT_URL: z.string().optional(),
   JWT_ACCESS_SECRET: z.string().min(32).default('change-me-access-secret-min-32-chars!!'),
   JWT_REFRESH_SECRET: z.string().min(32).default('change-me-refresh-secret-min-32-chars!!'),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
@@ -37,9 +38,14 @@ export function loadEnv(): Env {
   const rawDbUrl = pickEnv('DATABASE_URL', 'POSTGRES_URL', 'POSTGRES_PRISMA_URL');
   const databaseUrl = normalizeDatabaseUrl(
     rawDbUrl ?? 'postgresql://postgres:postgres@127.0.0.1:5432/coldflow?schema=public',
+    { pooled: true },
   );
+  const rawDirectUrl = pickEnv('DIRECT_URL', 'POSTGRES_URL_NON_POOLING');
+  const directUrl = normalizeDatabaseUrl(rawDirectUrl ?? databaseUrl);
+
   // Keep Prisma CLI / client and app on the same normalized URL.
   process.env.DATABASE_URL = databaseUrl;
+  process.env.DIRECT_URL = directUrl;
 
   const parsed = envSchema.safeParse({
     ...process.env,
@@ -47,6 +53,7 @@ export function loadEnv(): Env {
     CORS_ORIGINS: pickEnv('CORS_ORIGINS'),
     API_PREFIX: pickEnv('API_PREFIX'),
     DATABASE_URL: databaseUrl,
+    DIRECT_URL: directUrl,
     JWT_ACCESS_SECRET: pickEnv('JWT_ACCESS_SECRET'),
     JWT_REFRESH_SECRET: pickEnv('JWT_REFRESH_SECRET'),
     JWT_ACCESS_EXPIRES_IN: pickEnv('JWT_ACCESS_EXPIRES_IN'),
