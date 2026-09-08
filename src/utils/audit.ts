@@ -1,5 +1,6 @@
-import { AuditLogModel } from '../models/AuditLog.js';
-import { logger } from '../utils/logger.js';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../db/prisma.js';
+import { logger } from './logger.js';
 
 interface AuditInput {
   companyId?: string | null;
@@ -15,20 +16,27 @@ interface AuditInput {
   userAgent?: string;
 }
 
+function toJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+  if (value === undefined || value === null) return Prisma.JsonNull;
+  return value as Prisma.InputJsonValue;
+}
+
 export async function writeAudit(input: AuditInput) {
   try {
-    await AuditLogModel.create({
-      companyId: input.companyId ?? null,
-      userId: input.userId ?? null,
-      userName: input.userName ?? '',
-      action: input.action,
-      module: input.module,
-      recordId: input.recordId ?? '',
-      recordLabel: input.recordLabel ?? '',
-      oldValue: input.oldValue ?? null,
-      newValue: input.newValue ?? null,
-      ip: input.ip ?? '',
-      userAgent: input.userAgent ?? '',
+    await prisma.auditLog.create({
+      data: {
+        companyId: input.companyId ?? null,
+        userId: input.userId ?? null,
+        userName: input.userName ?? '',
+        action: input.action,
+        module: input.module,
+        recordId: input.recordId ?? '',
+        recordLabel: input.recordLabel ?? '',
+        oldValue: toJson(input.oldValue),
+        newValue: toJson(input.newValue),
+        ip: input.ip ?? '',
+        userAgent: input.userAgent ?? '',
+      },
     });
   } catch (err) {
     logger.error({ err }, 'Failed to write audit log');

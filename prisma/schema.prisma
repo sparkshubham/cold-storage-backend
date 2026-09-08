@@ -1,0 +1,765 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  module      String
+  action      String
+  description String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model Plan {
+  id            String         @id @default(cuid())
+  name          String
+  code          String         @unique
+  price         Float
+  billingCycle  String         @default("monthly")
+  maxUsers      Int            @default(10)
+  maxChambers   Int            @default(5)
+  maxStorage    Float          @default(1000)
+  maxCustomers  Int            @default(100)
+  features      String[]       @default([])
+  description   String         @default("")
+  isActive      Boolean        @default(true)
+  deletedAt     DateTime?
+  deletedBy     String?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  companies     Company[]
+  subscriptions Subscription[]
+
+  @@index([isActive])
+  @@map("plans")
+}
+
+model Company {
+  id                   String         @id @default(cuid())
+  name                 String
+  legalName            String         @default("")
+  ownerName            String         @default("")
+  mobile               String
+  email                String
+  gstin                String         @default("")
+  pan                  String         @default("")
+  addressLine1         String         @default("") @map("address_line1")
+  addressLine2         String         @default("") @map("address_line2")
+  addressCity          String         @default("") @map("address_city")
+  addressState         String         @default("") @map("address_state")
+  addressPincode       String         @default("") @map("address_pincode")
+  logoUrl              String         @default("")
+  storageCapacity      Float          @default(0)
+  capacityUnit         String         @default("MT")
+  chamberCount         Int            @default(0)
+  planId               String?
+  subscriptionId       String?
+  status               String         @default("trial")
+  onboardingCompleted  Boolean        @default(false)
+  onboardingStep       Int            @default(1)
+  deletedAt            DateTime?
+  deletedBy            String?
+  createdBy            String?
+  updatedBy            String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  plan                 Plan?          @relation(fields: [planId], references: [id])
+  subscription         Subscription?  @relation("CompanyCurrentSubscription", fields: [subscriptionId], references: [id])
+  subscriptions        Subscription[] @relation("CompanySubscriptions")
+  users                User[]
+  roles                Role[]
+  settings             Settings?
+  auditLogs            AuditLog[]
+  categories           Category[]
+  units                Unit[]
+  customers            Customer[]
+  suppliers            Supplier[]
+  products             Product[]
+  chambers             Chamber[]
+  racks                Rack[]
+  pillars              Pillar[]
+  locations            Location[]
+  batches              Batch[]
+  inventories          Inventory[]
+  stockTransactions    StockTransaction[]
+  inwards              Inward[]
+  outwards             Outward[]
+  invoices             Invoice[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([name])
+  @@map("companies")
+}
+
+model Subscription {
+  id            String    @id @default(cuid())
+  companyId     String
+  planId        String
+  status        String    @default("trial")
+  startDate     DateTime
+  endDate       DateTime
+  trialEndsAt   DateTime?
+  cancelledAt   DateTime?
+  amount        Float     @default(0)
+  notes         String    @default("")
+  deletedAt     DateTime?
+  deletedBy     String?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company       Company   @relation("CompanySubscriptions", fields: [companyId], references: [id])
+  plan          Plan      @relation(fields: [planId], references: [id])
+  currentFor    Company[] @relation("CompanyCurrentSubscription")
+
+  @@index([companyId, status])
+  @@index([endDate, status])
+  @@map("subscriptions")
+}
+
+model Role {
+  id             String    @id @default(cuid())
+  name           String
+  code           String
+  description    String    @default("")
+  isSystem       Boolean   @default(false)
+  permissionKeys String[]  @default([])
+  companyId      String?
+  deletedAt      DateTime?
+  deletedBy      String?
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company        Company?  @relation(fields: [companyId], references: [id])
+  users          User[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("roles")
+}
+
+model User {
+  id                      String    @id @default(cuid())
+  name                    String
+  email                   String
+  mobile                  String    @default("")
+  passwordHash            String
+  roleId                  String
+  roleCode                String
+  status                  String    @default("active")
+  lastLoginAt             DateTime?
+  passwordChangedAt       DateTime?
+  resetPasswordTokenHash  String?
+  resetPasswordExpiresAt  DateTime?
+  companyId               String?
+  deletedAt               DateTime?
+  deletedBy               String?
+  createdBy               String?
+  updatedBy               String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  role                    Role      @relation(fields: [roleId], references: [id])
+  company                 Company?  @relation(fields: [companyId], references: [id])
+  refreshTokens           RefreshToken[]
+
+  @@index([roleCode])
+  @@index([status])
+  @@index([companyId, status])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  jti       String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String    @default("")
+  ip        String    @default("")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  companyId   String?
+  userId      String?
+  userName    String    @default("")
+  action      String
+  module      String
+  recordId    String    @default("")
+  recordLabel String    @default("")
+  oldValue    Json?
+  newValue    Json?
+  ip          String    @default("")
+  userAgent   String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company     Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([module, action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model Settings {
+  id                       String   @id @default(cuid())
+  companyId                String?  @unique
+  scope                    String
+  invoicePrefix            String   @default("INV")
+  inwardPrefix             String   @default("INW")
+  outwardPrefix            String   @default("OUT")
+  paymentPrefix            String   @default("PAY")
+  gatePassPrefix           String   @default("GP")
+  transferPrefix           String   @default("TRF")
+  adjustmentPrefix         String   @default("ADJ")
+  defaultGstRate           Float    @default(18)
+  storageRatePerUnitPerDay Float    @default(20)
+  inwardHandlingRate       Float    @default(40)
+  outwardHandlingRate      Float    @default(40)
+  handlingChargeBasis      String   @default("weight")
+  handlingWeightUnit       String   @default("KG")
+  unitRates                Json     @default("[]")
+  dateFormat               String   @default("DD-MM-YYYY")
+  currency                 String   @default("INR")
+  currencySymbol           String   @default("₹")
+  timezone                 String   @default("Asia/Kolkata")
+  values                   Json     @default("{}")
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  company                  Company? @relation(fields: [companyId], references: [id])
+
+  @@map("settings")
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  companyId   String
+  name        String
+  code        String
+  description String    @default("")
+  status      String    @default("active")
+  deletedAt   DateTime?
+  deletedBy   String?
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company     Company   @relation(fields: [companyId], references: [id])
+  products    Product[]
+
+  @@index([companyId, code])
+  @@index([companyId, status])
+  @@map("categories")
+}
+
+model Unit {
+  id        String    @id @default(cuid())
+  companyId String
+  name      String
+  code      String
+  status    String    @default("active")
+  deletedAt DateTime?
+  deletedBy String?
+  createdBy String?
+  updatedBy String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  products  Product[]
+
+  @@index([companyId, code])
+  @@map("units")
+}
+
+model Customer {
+  id              String    @id @default(cuid())
+  companyId       String
+  code            String
+  name            String
+  businessName    String    @default("")
+  mobile          String
+  alternateMobile String    @default("")
+  email           String    @default("")
+  address         String    @default("")
+  city            String    @default("")
+  state           String    @default("")
+  pincode         String    @default("")
+  gstin           String    @default("")
+  pan             String    @default("")
+  openingBalance  Float     @default(0)
+  creditLimit     Float     @default(0)
+  paymentTerms    String    @default("")
+  notes           String    @default("")
+  status          String    @default("active")
+  deletedAt       DateTime?
+  deletedBy       String?
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company   @relation(fields: [companyId], references: [id])
+  batches         Batch[]
+  inventories     Inventory[]
+  inwards         Inward[]
+  outwards        Outward[]
+  invoices        Invoice[]
+  stockTransactions StockTransaction[]
+
+  @@index([companyId, code])
+  @@index([companyId, mobile])
+  @@index([companyId, name])
+  @@map("customers")
+}
+
+model Supplier {
+  id             String    @id @default(cuid())
+  companyId      String
+  code           String
+  name           String
+  businessName   String    @default("")
+  mobile         String
+  email          String    @default("")
+  gstin          String    @default("")
+  address        String    @default("")
+  openingBalance Float     @default(0)
+  status         String    @default("active")
+  deletedAt      DateTime?
+  deletedBy      String?
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company        Company   @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, code])
+  @@map("suppliers")
+}
+
+model Product {
+  id             String    @id @default(cuid())
+  companyId      String
+  code           String
+  name           String
+  categoryId     String?
+  sku            String    @default("")
+  hsn            String    @default("")
+  unitId         String?
+  defaultRate    Float     @default(0)
+  storageType    String    @default("")
+  minTemperature Float?
+  maxTemperature Float?
+  description    String    @default("")
+  status         String    @default("active")
+  deletedAt      DateTime?
+  deletedBy      String?
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company        Company   @relation(fields: [companyId], references: [id])
+  category       Category? @relation(fields: [categoryId], references: [id])
+  unit           Unit?     @relation(fields: [unitId], references: [id])
+  batches        Batch[]
+  inventories    Inventory[]
+  inwards        Inward[]
+  outwards       Outward[]
+  invoices       Invoice[]
+  stockTransactions StockTransaction[]
+
+  @@index([companyId, code])
+  @@index([companyId, name])
+  @@map("products")
+}
+
+model Chamber {
+  id               String    @id @default(cuid())
+  companyId        String
+  code             String
+  name             String
+  capacity         Float
+  capacityUnit     String    @default("MT")
+  temperature      Float?
+  minTemperature   Float?
+  maxTemperature   Float?
+  location         String    @default("")
+  occupiedCapacity Float     @default(0)
+  reservedCapacity Float     @default(0)
+  damagedCapacity  Float     @default(0)
+  status           String    @default("active")
+  deletedAt        DateTime?
+  deletedBy        String?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company          Company   @relation(fields: [companyId], references: [id])
+  racks            Rack[]
+  pillars          Pillar[]
+  locations        Location[]
+  batches          Batch[]
+  inventories      Inventory[]
+  inwards          Inward[]
+  outwards         Outward[]
+  stockTransactions StockTransaction[]
+
+  @@index([companyId, code])
+  @@map("chambers")
+}
+
+model Rack {
+  id               String    @id @default(cuid())
+  companyId        String
+  chamberId        String
+  code             String
+  name             String
+  capacity         Float
+  occupiedCapacity Float     @default(0)
+  status           String    @default("active")
+  deletedAt        DateTime?
+  deletedBy        String?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company          Company   @relation(fields: [companyId], references: [id])
+  chamber          Chamber   @relation(fields: [chamberId], references: [id])
+  pillars          Pillar[]
+  locations        Location[]
+  batches          Batch[]
+  inventories      Inventory[]
+  inwards          Inward[]
+  outwards         Outward[]
+  stockTransactions StockTransaction[]
+
+  @@index([companyId, chamberId, code])
+  @@map("racks")
+}
+
+model Pillar {
+  id               String    @id @default(cuid())
+  companyId        String
+  chamberId        String
+  rackId           String?
+  code             String
+  name             String
+  series           String    @default("B")
+  capacity         Float
+  occupiedCapacity Float     @default(0)
+  status           String    @default("active")
+  deletedAt        DateTime?
+  deletedBy        String?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company          Company   @relation(fields: [companyId], references: [id])
+  chamber          Chamber   @relation(fields: [chamberId], references: [id])
+  rack             Rack?     @relation(fields: [rackId], references: [id])
+  locations        Location[]
+  inwards          Inward[]
+  outwards         Outward[]
+
+  @@index([companyId, chamberId, code])
+  @@map("pillars")
+}
+
+model Location {
+  id               String    @id @default(cuid())
+  companyId        String
+  chamberId        String
+  rackId           String
+  pillarId         String?
+  section          String
+  code             String
+  capacity         Float
+  occupiedCapacity Float     @default(0)
+  status           String    @default("active")
+  deletedAt        DateTime?
+  deletedBy        String?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company          Company   @relation(fields: [companyId], references: [id])
+  chamber          Chamber   @relation(fields: [chamberId], references: [id])
+  rack             Rack      @relation(fields: [rackId], references: [id])
+  pillar           Pillar?   @relation(fields: [pillarId], references: [id])
+  batches          Batch[]
+  inventories      Inventory[]
+  inwards          Inward[]
+  outwards         Outward[]
+  stockTransactions StockTransaction[]
+
+  @@index([companyId, code])
+  @@index([companyId, chamberId, rackId])
+  @@map("locations")
+}
+
+model Batch {
+  id                String    @id @default(cuid())
+  companyId         String
+  batchNumber       String
+  lotNumber         String    @default("")
+  customerId        String
+  productId         String
+  quantity          Float
+  inwardDate        DateTime
+  manufacturingDate DateTime?
+  expiryDate        DateTime?
+  chamberId         String?
+  rackId            String?
+  locationId        String?
+  status            String    @default("available")
+  deletedAt         DateTime?
+  deletedBy         String?
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  company           Company   @relation(fields: [companyId], references: [id])
+  customer          Customer  @relation(fields: [customerId], references: [id])
+  product           Product   @relation(fields: [productId], references: [id])
+  chamber           Chamber?  @relation(fields: [chamberId], references: [id])
+  rack              Rack?     @relation(fields: [rackId], references: [id])
+  location          Location? @relation(fields: [locationId], references: [id])
+  inventories       Inventory[]
+  inwards           Inward[]
+  outwards          Outward[]
+  stockTransactions StockTransaction[]
+
+  @@index([companyId, batchNumber])
+  @@map("batches")
+}
+
+model Inventory {
+  id               String    @id @default(cuid())
+  companyId        String
+  customerId       String
+  productId        String
+  batchId          String?
+  chamberId        String
+  rackId           String
+  locationId       String
+  quantity         Float     @default(0)
+  reservedQuantity Float     @default(0)
+  unit             String
+  status           String    @default("available")
+  deletedAt        DateTime?
+  deletedBy        String?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company          Company   @relation(fields: [companyId], references: [id])
+  customer         Customer  @relation(fields: [customerId], references: [id])
+  product          Product   @relation(fields: [productId], references: [id])
+  batch            Batch?    @relation(fields: [batchId], references: [id])
+  chamber          Chamber   @relation(fields: [chamberId], references: [id])
+  rack             Rack      @relation(fields: [rackId], references: [id])
+  location         Location  @relation(fields: [locationId], references: [id])
+
+  @@index([companyId, customerId, productId, batchId, locationId, status])
+  @@map("inventories")
+}
+
+model StockTransaction {
+  id              String    @id @default(cuid())
+  companyId       String
+  type            String
+  customerId      String?
+  productId       String
+  batchId         String?
+  chamberId       String?
+  rackId          String?
+  locationId      String?
+  quantity        Float
+  unit            String
+  referenceType   String    @default("")
+  referenceId     String?
+  referenceNumber String    @default("")
+  notes           String    @default("")
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company   @relation(fields: [companyId], references: [id])
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  product         Product   @relation(fields: [productId], references: [id])
+  batch           Batch?    @relation(fields: [batchId], references: [id])
+  chamber         Chamber?  @relation(fields: [chamberId], references: [id])
+  rack            Rack?     @relation(fields: [rackId], references: [id])
+  location        Location? @relation(fields: [locationId], references: [id])
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, productId, createdAt(sort: Desc)])
+  @@map("stock_transactions")
+}
+
+model Inward {
+  id            String    @id @default(cuid())
+  companyId     String
+  inwardNumber  String
+  date          DateTime
+  customerId    String
+  productId     String
+  quantity      Float
+  unit          String
+  weight        Float     @default(0)
+  weightUnit    String    @default("KG")
+  challanNumber String    @default("")
+  batchId       String?
+  chamberId     String
+  rackId        String
+  pillarId      String?
+  locationId    String
+  vehicleNumber String    @default("")
+  notes         String    @default("")
+  invoiceId     String?
+  status        String    @default("completed")
+  deletedAt     DateTime?
+  deletedBy     String?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  customer      Customer  @relation(fields: [customerId], references: [id])
+  product       Product   @relation(fields: [productId], references: [id])
+  batch         Batch?    @relation(fields: [batchId], references: [id])
+  chamber       Chamber   @relation(fields: [chamberId], references: [id])
+  rack          Rack      @relation(fields: [rackId], references: [id])
+  pillar        Pillar?   @relation(fields: [pillarId], references: [id])
+  location      Location  @relation(fields: [locationId], references: [id])
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId, inwardNumber])
+  @@index([companyId, date])
+  @@map("inwards")
+}
+
+model Outward {
+  id            String    @id @default(cuid())
+  companyId     String
+  outwardNumber String
+  date          DateTime
+  customerId    String
+  productId     String
+  quantity      Float
+  unit          String
+  weight        Float     @default(0)
+  weightUnit    String    @default("KG")
+  challanNumber String    @default("")
+  batchId       String?
+  chamberId     String
+  rackId        String
+  pillarId      String?
+  locationId    String
+  vehicleNumber String    @default("")
+  notes         String    @default("")
+  invoiceId     String?
+  status        String    @default("completed")
+  deletedAt     DateTime?
+  deletedBy     String?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  customer      Customer  @relation(fields: [customerId], references: [id])
+  product       Product   @relation(fields: [productId], references: [id])
+  batch         Batch?    @relation(fields: [batchId], references: [id])
+  chamber       Chamber   @relation(fields: [chamberId], references: [id])
+  rack          Rack      @relation(fields: [rackId], references: [id])
+  pillar        Pillar?   @relation(fields: [pillarId], references: [id])
+  location      Location  @relation(fields: [locationId], references: [id])
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId, outwardNumber])
+  @@index([companyId, date])
+  @@map("outwards")
+}
+
+model Invoice {
+  id            String    @id @default(cuid())
+  companyId     String
+  invoiceNumber String
+  date          DateTime
+  customerId    String
+  sourceType    String
+  sourceId      String
+  sourceIds     String[]  @default([])
+  inwardId      String?
+  outwardId     String?
+  inwardIds     String[]  @default([])
+  outwardIds    String[]  @default([])
+  productId     String?
+  storageFrom   DateTime?
+  storageTo     DateTime?
+  storageDays   Float     @default(0)
+  quantity      Float
+  unit          String    @default("")
+  items         Json      @default("[]")
+  subtotal      Float
+  gstRate       Float
+  gstAmount     Float
+  total         Float
+  notes         String    @default("")
+  status        String    @default("issued")
+  deletedAt     DateTime?
+  deletedBy     String?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  customer      Customer  @relation(fields: [customerId], references: [id])
+  product       Product?  @relation(fields: [productId], references: [id])
+  inwards       Inward[]
+  outwards      Outward[]
+
+  @@index([companyId, invoiceNumber])
+  @@index([companyId, sourceType, sourceId, status])
+  @@map("invoices")
+}

@@ -1,13 +1,6 @@
-import { CustomerModel } from '../models/Customer.js';
-import { ChamberModel } from '../models/Chamber.js';
-import { InventoryModel } from '../models/Inventory.js';
-import { InwardModel } from '../models/Inward.js';
-import { OutwardModel } from '../models/Outward.js';
-import { CompanyModel } from '../models/Company.js';
-import { UserModel } from '../models/User.js';
-import { SubscriptionModel } from '../models/Subscription.js';
+import { prisma } from '../db/prisma.js';
+import { notDeleted } from '../db/serialize.js';
 import { occupancyPercent } from '../utils/stockMath.js';
-import { toObjectId } from '../types/auth.js';
 
 export async function getSuperAdminDashboard() {
   const now = new Date();
@@ -24,52 +17,61 @@ export async function getSuperAdminDashboard() {
     monthlyRevenueAgg,
     outstandingAgg,
     expiringSubscriptions,
-    growth,
+    companyDates,
     occupiedAgg,
     capacityAgg,
   ] = await Promise.all([
-    CompanyModel.countDocuments({ deletedAt: null }),
-    CompanyModel.countDocuments({ deletedAt: null, status: 'active' }),
-    CompanyModel.countDocuments({ deletedAt: null, status: 'suspended' }),
-    CompanyModel.countDocuments({ deletedAt: null, status: 'trial' }),
-    UserModel.countDocuments({ deletedAt: null }),
-    CustomerModel.countDocuments({ deletedAt: null }),
-    SubscriptionModel.aggregate([
-      { $match: { deletedAt: null, status: { $in: ['active', 'trial'] }, createdAt: { $gte: startOfMonth } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]),
-    SubscriptionModel.aggregate([
-      { $match: { deletedAt: null, status: { $in: ['expired', 'suspended'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]),
-    SubscriptionModel.countDocuments({
-      deletedAt: null,
-      status: { $in: ['active', 'trial'] },
-      endDate: { $gte: now, $lte: inSevenDays },
-    }),
-    CompanyModel.aggregate([
-      { $match: { deletedAt: null } },
-      {
-        $group: {
-          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
-          count: { $sum: 1 },
-        },
+    prisma.company.count({ where: { deletedAt: null } }),
+    prisma.company.count({ where: { deletedAt: null, status: 'active' } }),
+    prisma.company.count({ where: { deletedAt: null, status: 'suspended' } }),
+    prisma.company.count({ where: { deletedAt: null, status: 'trial' } }),
+    prisma.user.count({ where: { deletedAt: null } }),
+    prisma.customer.count({ where: { deletedAt: null } }),
+    prisma.subscription.aggregate({
+      where: {
+        deletedAt: null,
+        status: { in: ['active', 'trial'] },
+        createdAt: { gte: startOfMonth },
       },
-      { $sort: { '_id.year': 1, '_id.month': 1 } },
-      { $limit: 12 },
-    ]),
-    ChamberModel.aggregate([
-      { $match: { deletedAt: null } },
-      { $group: { _id: null, occupied: { $sum: '$occupiedCapacity' } } },
-    ]),
-    CompanyModel.aggregate([
-      { $match: { deletedAt: null } },
-      { $group: { _id: null, totalCapacity: { $sum: '$storageCapacity' } } },
-    ]),
+      _sum: { amount: true },
+    }),
+    prisma.subscription.aggregate({
+      where: { deletedAt: null, status: { in: ['expired', 'suspended'] } },
+      _sum: { amount: true },
+    }),
+    prisma.subscription.count({
+      where: {
+        deletedAt: null,
+        status: { in: ['active', 'trial'] },
+        endDate: { gte: now, lte: inSevenDays },
+      },
+    }),
+    prisma.company.findMany({
+      where: { deletedAt: null },
+      select: { createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.chamber.aggregate({
+      where: { deletedAt: null },
+      _sum: { occupiedCapacity: true },
+    }),
+    prisma.company.aggregate({
+      where: { deletedAt: null },
+      _sum: { storageCapacity: true },
+    }),
   ]);
 
-  const totalStorageCapacity = capacityAgg[0]?.totalCapacity ?? 0;
-  const occupiedCapacity = occupiedAgg[0]?.occupied ?? 0;
+  const growthMap = new Map<string, number>();
+  for (const row of companyDates) {
+    const label = `${row.createdAt.getFullYear()}-${String(row.createdAt.getMonth() + 1).padStart(2, '0')}`;
+    growthMap.set(label, (growthMap.get(label) ?? 0) + 1);
+  }
+  const companyGrowth = [...growthMap.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .slice(0, 12);
+
+  const totalStorageCapacity = capacityAgg._sum.storageCapacity ?? 0;
+  const occupiedCapacity = occupiedAgg._sum.occupiedCapacity ?? 0;
 
   return {
     totalCompanies,
@@ -81,14 +83,11 @@ export async function getSuperAdminDashboard() {
     totalStorageCapacity,
     occupiedCapacity,
     availableCapacity: Math.max(totalStorageCapacity - occupiedCapacity, 0),
-    monthlySaasRevenue: monthlyRevenueAgg[0]?.total ?? 0,
-    outstandingSubscription: outstandingAgg[0]?.total ?? 0,
+    monthlySaasRevenue: monthlyRevenueAgg._sum.amount ?? 0,
+    outstandingSubscription: outstandingAgg._sum.amount ?? 0,
     expiringSubscriptions,
     charts: {
-      companyGrowth: growth.map((row) => ({
-        label: `${row._id.year}-${String(row._id.month).padStart(2, '0')}`,
-        value: row.count,
-      })),
+      companyGrowth,
       statusBreakdown: [
         { label: 'Active', value: activeCompanies },
         { label: 'Trial', value: trialCompanies },
@@ -99,34 +98,37 @@ export async function getSuperAdminDashboard() {
 }
 
 export async function getCompanyDashboard(companyId: string) {
-  const companyObjectId = toObjectId(companyId);
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [company, userCount, totalCustomers, chamberAgg, stockAgg, todaysInward, todaysOutward] = await Promise.all([
-    CompanyModel.findById(companyId).select('name storageCapacity capacityUnit chamberCount status'),
-    UserModel.countDocuments({ companyId, deletedAt: null }),
-    CustomerModel.countDocuments({ companyId, deletedAt: null }),
-    ChamberModel.aggregate([
-      { $match: { companyId: companyObjectId, deletedAt: null } },
-      { $group: { _id: null, capacity: { $sum: '$capacity' }, occupied: { $sum: '$occupiedCapacity' } } },
-    ]),
-    InventoryModel.aggregate([
-      { $match: { companyId: companyObjectId, deletedAt: null } },
-      { $group: { _id: null, qty: { $sum: '$quantity' } } },
-    ]),
-    InwardModel.countDocuments({ companyId, deletedAt: null, date: { $gte: startOfDay } }),
-    OutwardModel.countDocuments({ companyId, deletedAt: null, date: { $gte: startOfDay } }),
-  ]);
+  const [company, userCount, totalCustomers, chamberAgg, stockAgg, todaysInward, todaysOutward] =
+    await Promise.all([
+      prisma.company.findFirst({
+        where: { id: companyId },
+        select: { id: true, name: true, storageCapacity: true, capacityUnit: true, chamberCount: true, status: true },
+      }),
+      prisma.user.count({ where: notDeleted({ companyId }) }),
+      prisma.customer.count({ where: notDeleted({ companyId }) }),
+      prisma.chamber.aggregate({
+        where: notDeleted({ companyId }),
+        _sum: { capacity: true, occupiedCapacity: true },
+      }),
+      prisma.inventory.aggregate({
+        where: notDeleted({ companyId }),
+        _sum: { quantity: true },
+      }),
+      prisma.inward.count({ where: notDeleted({ companyId, date: { gte: startOfDay } }) }),
+      prisma.outward.count({ where: notDeleted({ companyId, date: { gte: startOfDay } }) }),
+    ]);
 
-  const totalCapacity = chamberAgg[0]?.capacity ?? company?.storageCapacity ?? 0;
-  const occupiedCapacity = chamberAgg[0]?.occupied ?? 0;
+  const totalCapacity = chamberAgg._sum.capacity ?? company?.storageCapacity ?? 0;
+  const occupiedCapacity = chamberAgg._sum.occupiedCapacity ?? 0;
   const availableCapacity = Math.max(totalCapacity - occupiedCapacity, 0);
 
   return {
     company: company
       ? {
-          id: String(company._id),
+          id: company.id,
           name: company.name,
           status: company.status,
           chamberCount: company.chamberCount,
@@ -138,7 +140,7 @@ export async function getCompanyDashboard(companyId: string) {
     occupancyPercent: occupancyPercent(occupiedCapacity, totalCapacity),
     todaysInward,
     todaysOutward,
-    currentStock: stockAgg[0]?.qty ?? 0,
+    currentStock: stockAgg._sum.quantity ?? 0,
     totalCustomers,
     outstandingAmount: 0,
     todaysRevenue: 0,

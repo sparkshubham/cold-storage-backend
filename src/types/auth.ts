@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import type { Request } from 'express';
 import { AppError } from '../utils/AppError.js';
 
@@ -35,8 +34,4 @@ export function requireTenantId(req: Request): string {
     throw AppError.badRequest('Company context is required');
   }
   return tenantId;
-}
-
-export function toObjectId(id: string) {
-  return new mongoose.Types.ObjectId(id);
 }

@@ -1,7 +1,7 @@
 import { connectDatabase } from './config/db.js';
 import { env } from './config/env.js';
 import { runMigrations } from './migrate.js';
-import { UserModel } from './models/User.js';
+import { prisma } from './db/prisma.js';
 import { runSeed, syncAccessControl } from './seeds/index.js';
 import { logger } from './utils/logger.js';
 
@@ -20,9 +20,12 @@ export async function prepareDatabase(): Promise<void> {
     preparing = (async () => {
       await connectDatabase();
       await syncAccessControlOnce();
-      const seeded = await UserModel.exists({
-        email: env.SEED_SUPER_ADMIN_EMAIL.toLowerCase(),
-        deletedAt: null,
+      const seeded = await prisma.user.findFirst({
+        where: {
+          email: env.SEED_SUPER_ADMIN_EMAIL.toLowerCase(),
+          deletedAt: null,
+        },
+        select: { id: true },
       });
       if (seeded) {
         logger.info('Database already seeded');

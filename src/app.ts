@@ -48,11 +48,11 @@ async function ensureDatabase(req: express.Request, _res: express.Response, next
     await syncAccessControlOnce();
     next();
   } catch (err) {
-    logger.error({ err }, 'MongoDB connection failed');
+    logger.error({ err }, 'PostgreSQL connection failed');
     const hint =
-      err instanceof Error && err.message.includes('MONGODB_URI')
+      err instanceof Error && (err.message.includes('DATABASE_URL') || err.message.includes('POSTGRES'))
         ? err.message
-        : 'Database unavailable. On Vercel set MONGODB_URI to your Atlas URI, and in Atlas Network Access allow 0.0.0.0/0.';
+        : 'Database unavailable. Set DATABASE_URL to a reachable Postgres connection string.';
     next(new AppError(hint, 503));
   }
 }
@@ -99,7 +99,7 @@ export function createApp() {
       await connectDatabase();
       database = 'connected';
     } catch (err) {
-      logger.error({ err }, 'Health check could not reach MongoDB');
+      logger.error({ err }, 'Health check could not reach PostgreSQL');
     }
     res.status(database === 'connected' ? 200 : 503).json({
       success: database === 'connected',

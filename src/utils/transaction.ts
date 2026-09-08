@@ -1,28 +1,9 @@
-import mongoose, { type ClientSession } from 'mongoose';
+import { Prisma, type PrismaClient } from '@prisma/client';
+import { prisma } from '../db/prisma.js';
 
-function isTransactionUnsupported(err: unknown) {
-  const message = err instanceof Error ? err.message : String(err);
-  return (
-    message.includes('Transaction numbers are only allowed') ||
-    message.includes('replica set') ||
-    message.includes('IllegalOperation')
-  );
-}
+/** Root client or nested `$transaction` client. */
+export type DbClient = PrismaClient | Prisma.TransactionClient;
 
-export async function withTransaction<T>(fn: (session?: ClientSession) => Promise<T>): Promise<T> {
-  const session = await mongoose.startSession();
-  try {
-    let result: T | undefined;
-    await session.withTransaction(async () => {
-      result = await fn(session);
-    });
-    return result as T;
-  } catch (err) {
-    if (isTransactionUnsupported(err)) {
-      return fn(undefined);
-    }
-    throw err;
-  } finally {
-    await session.endSession();
-  }
+export async function withTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async (tx) => fn(tx));
 }

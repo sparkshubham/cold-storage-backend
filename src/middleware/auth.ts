@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
-import { UserModel } from '../models/User.js';
-import { CompanyModel } from '../models/Company.js';
+import { prisma } from '../db/prisma.js';
+import { notDeleted } from '../db/serialize.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { verifyAccessToken } from '../utils/token.js';
@@ -27,10 +27,16 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
 
   const isSuperAdmin = payload.role === ROLE_CODES.SUPER_ADMIN;
   const [user, company] = await Promise.all([
-    UserModel.findOne({ _id: payload.sub, deletedAt: null }).select('email name roleCode companyId status'),
+    prisma.user.findFirst({
+      where: notDeleted({ id: payload.sub }),
+      select: { id: true, email: true, name: true, roleCode: true, companyId: true, status: true },
+    }),
     isSuperAdmin || !payload.companyId
       ? Promise.resolve(null)
-      : CompanyModel.findOne({ _id: payload.companyId, deletedAt: null }).select('status'),
+      : prisma.company.findFirst({
+          where: notDeleted({ id: payload.companyId }),
+          select: { status: true },
+        }),
   ]);
 
   if (!user) {
@@ -56,11 +62,11 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
   }
 
   const authUser: AuthUser = {
-    id: String(user._id),
+    id: user.id,
     email: user.email,
     name: user.name,
     role: user.roleCode,
-    companyId: user.companyId ? String(user.companyId) : null,
+    companyId: user.companyId ?? null,
     permissions: payload.permissions ?? [],
     isSuperAdmin,
   };

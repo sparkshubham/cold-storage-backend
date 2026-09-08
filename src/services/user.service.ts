@@ -1,12 +1,13 @@
 import bcrypt from 'bcryptjs';
 import { env } from '../config/env.js';
 import { ROLE_CODES } from '../config/constants.js';
-import { UserModel } from '../models/User.js';
-import { RoleModel } from '../models/Role.js';
+import { prisma } from '../db/prisma.js';
+import { notDeleted, orderField, serialize, withPopulated } from '../db/serialize.js';
 import { AppError } from '../utils/AppError.js';
 import { writeAudit } from '../utils/audit.js';
-import { escapeRegex } from '../utils/pagination.js';
 import type { AuthUser } from '../types/auth.js';
+
+const userPopulateMap = { role: 'roleId', company: 'companyId' };
 
 export async function listUsers(
   params: {
@@ -21,30 +22,41 @@ export async function listUsers(
   },
   actor: AuthUser,
 ) {
-  const filter: Record<string, unknown> = { deletedAt: null };
+  const where: Record<string, unknown> = notDeleted({});
   if (!actor.isSuperAdmin) {
-    filter.companyId = actor.companyId;
+    where.companyId = actor.companyId;
   } else if (params.companyId) {
-    filter.companyId = params.companyId;
+    where.companyId = params.companyId;
   }
   if (params.status) {
-    filter.status = params.status;
+    where.status = params.status;
   }
   if (params.search) {
-    const rx = new RegExp(escapeRegex(params.search), 'i');
-    filter.$or = [{ name: rx }, { email: rx }, { mobile: rx }];
+    where.OR = [
+      { name: { contains: params.search, mode: 'insensitive' } },
+      { email: { contains: params.search, mode: 'insensitive' } },
+      { mobile: { contains: params.search, mode: 'insensitive' } },
+    ];
   }
 
-  const [data, total] = await Promise.all([
-    UserModel.find(filter)
-      .populate('roleId', 'name code')
-      .populate('companyId', 'name')
-      .sort({ [params.sortBy]: params.sortOrder })
-      .skip(params.skip)
-      .limit(params.limit),
-    UserModel.countDocuments(filter),
+  const orderBy = { [orderField(params.sortBy)]: params.sortOrder === -1 ? 'desc' : 'asc' };
+  const [rows, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      orderBy,
+      skip: params.skip,
+      take: params.limit,
+      include: {
+        role: { select: { id: true, name: true, code: true } },
+        company: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.user.count({ where }),
   ]);
-  return { data, total };
+  return {
+    data: (rows as Record<string, unknown>[]).map((row) => withPopulated(row, userPopulateMap)),
+    total,
+  };
 }
 
 export async function createUser(
@@ -60,12 +72,12 @@ export async function createUser(
   actor: AuthUser,
 ) {
   const email = input.email.toLowerCase();
-  const existing = await UserModel.findOne({ email, deletedAt: null });
+  const existing = await prisma.user.findFirst({ where: notDeleted({ email }) });
   if (existing) {
     throw AppError.conflict('A user with this email already exists');
   }
 
-  const role = await RoleModel.findById(input.roleId);
+  const role = await prisma.role.findFirst({ where: notDeleted({ id: input.roleId }) });
   if (!role) {
     throw AppError.notFound('Role not found');
   }
@@ -78,16 +90,18 @@ export async function createUser(
     throw AppError.badRequest('Company is required for this role');
   }
 
-  const user = await UserModel.create({
-    name: input.name,
-    email,
-    mobile: input.mobile ?? '',
-    passwordHash: await bcrypt.hash(input.password, env.BCRYPT_SALT_ROUNDS),
-    roleId: role._id,
-    roleCode: role.code,
-    companyId,
-    status: input.status ?? 'active',
-    createdBy: actor.id,
+  const user = await prisma.user.create({
+    data: {
+      name: input.name,
+      email,
+      mobile: input.mobile ?? '',
+      passwordHash: await bcrypt.hash(input.password, env.BCRYPT_SALT_ROUNDS),
+      roleId: role.id,
+      roleCode: role.code,
+      companyId,
+      status: input.status ?? 'active',
+      createdBy: actor.id,
+    },
   });
 
   await writeAudit({
@@ -96,63 +110,65 @@ export async function createUser(
     userName: actor.name,
     action: 'CREATE',
     module: 'User',
-    recordId: String(user._id),
+    recordId: user.id,
     recordLabel: user.name,
   });
 
-  return user;
+  return serialize(user);
 }
 
 export async function updateUser(id: string, input: Record<string, unknown>, actor: AuthUser) {
-  const user = await UserModel.findOne({ _id: id, deletedAt: null });
+  const user = await prisma.user.findFirst({ where: notDeleted({ id }) });
   if (!user) {
     throw AppError.notFound('User not found');
   }
-  if (!actor.isSuperAdmin && String(user.companyId) !== actor.companyId) {
+  if (!actor.isSuperAdmin && user.companyId !== actor.companyId) {
     throw AppError.forbidden();
   }
+
+  const data: Record<string, unknown> = { updatedBy: actor.id };
   if (input.roleId) {
-    const role = await RoleModel.findById(String(input.roleId));
+    const role = await prisma.role.findFirst({ where: notDeleted({ id: String(input.roleId) }) });
     if (!role) {
       throw AppError.notFound('Role not found');
     }
-    user.roleId = role._id;
-    user.roleCode = role.code;
+    data.roleId = role.id;
+    data.roleCode = role.code;
   }
-  if (input.name) user.name = String(input.name);
-  if (input.mobile !== undefined) user.mobile = String(input.mobile);
-  if (input.status) user.status = input.status as typeof user.status;
-  user.updatedBy = actor.id as unknown as typeof user.updatedBy;
-  await user.save();
+  if (input.name) data.name = String(input.name);
+  if (input.mobile !== undefined) data.mobile = String(input.mobile);
+  if (input.status) data.status = String(input.status);
+
+  const updated = await prisma.user.update({ where: { id }, data });
   await writeAudit({
-    companyId: user.companyId ? String(user.companyId) : null,
+    companyId: updated.companyId,
     userId: actor.id,
     userName: actor.name,
     action: 'UPDATE',
     module: 'User',
     recordId: id,
-    recordLabel: user.name,
+    recordLabel: updated.name,
   });
-  return user;
+  return serialize(updated);
 }
 
 export async function softDeleteUser(id: string, actor: AuthUser) {
-  const user = await UserModel.findOne({ _id: id, deletedAt: null });
+  const user = await prisma.user.findFirst({ where: notDeleted({ id }) });
   if (!user) {
     throw AppError.notFound('User not found');
   }
-  if (String(user._id) === actor.id) {
+  if (user.id === actor.id) {
     throw AppError.badRequest('You cannot delete your own account');
   }
-  if (!actor.isSuperAdmin && String(user.companyId) !== actor.companyId) {
+  if (!actor.isSuperAdmin && user.companyId !== actor.companyId) {
     throw AppError.forbidden();
   }
-  user.deletedAt = new Date();
-  user.deletedBy = actor.id as unknown as typeof user.deletedBy;
-  user.status = 'suspended';
-  await user.save();
+  const updated = await prisma.user.update({
+    where: { id },
+    data: { deletedAt: new Date(), deletedBy: actor.id, status: 'suspended' },
+  });
   await writeAudit({
-    companyId: user.companyId ? String(user.companyId) : null,
+    companyId: user.companyId,
     userId: actor.id,
     userName: actor.name,
     action: 'DELETE',
@@ -160,19 +176,20 @@ export async function softDeleteUser(id: string, actor: AuthUser) {
     recordId: id,
     recordLabel: user.name,
   });
-  return user;
+  return serialize(updated);
 }
 
 export async function listRoles(companyId: string | null, actor: AuthUser) {
-  const filter: Record<string, unknown> = { deletedAt: null };
+  const where: Record<string, unknown> = notDeleted({});
   if (actor.isSuperAdmin) {
     if (companyId) {
-      filter.$or = [{ companyId }, { companyId: null }];
+      where.OR = [{ companyId }, { companyId: null }];
     }
   } else {
-    filter.companyId = actor.companyId;
+    where.companyId = actor.companyId;
   }
-  return RoleModel.find(filter).sort({ name: 1 });
+  const roles = await prisma.role.findMany({ where, orderBy: { name: 'asc' } });
+  return serialize(roles);
 }
 
 export async function listAuditLogs(params: {
@@ -184,19 +201,23 @@ export async function listAuditLogs(params: {
   action?: string;
   actor: AuthUser;
 }) {
-  const { AuditLogModel } = await import('../models/AuditLog.js');
-  const filter: Record<string, unknown> = {};
+  const where: Record<string, unknown> = {};
   if (!params.actor.isSuperAdmin) {
-    filter.companyId = params.actor.companyId;
+    where.companyId = params.actor.companyId;
   } else if (params.companyId) {
-    filter.companyId = params.companyId;
+    where.companyId = params.companyId;
   }
-  if (params.module) filter.module = params.module;
-  if (params.action) filter.action = params.action;
+  if (params.module) where.module = params.module;
+  if (params.action) where.action = params.action;
 
   const [data, total] = await Promise.all([
-    AuditLogModel.find(filter).sort({ createdAt: -1 }).skip(params.skip).limit(params.limit),
-    AuditLogModel.countDocuments(filter),
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: params.skip,
+      take: params.limit,
+    }),
+    prisma.auditLog.count({ where }),
   ]);
-  return { data, total };
+  return { data: serialize(data), total };
 }

@@ -1,25 +1,40 @@
-import { PlanModel } from '../models/Plan.js';
+import { prisma } from '../db/prisma.js';
+import { notDeleted, orderField, serialize } from '../db/serialize.js';
 import { AppError } from '../utils/AppError.js';
 import { writeAudit } from '../utils/audit.js';
-import { escapeRegex } from '../utils/pagination.js';
 import type { AuthUser } from '../types/auth.js';
 
 export async function createPlan(input: Record<string, unknown>, actor: AuthUser) {
   const code = String(input.code).toUpperCase();
-  const existing = await PlanModel.findOne({ code, deletedAt: null });
+  const existing = await prisma.plan.findFirst({ where: notDeleted({ code }) });
   if (existing) {
     throw AppError.conflict('Plan code already exists');
   }
-  const plan = await PlanModel.create({ ...input, code, createdBy: actor.id });
+  const plan = await prisma.plan.create({
+    data: {
+      name: String(input.name ?? ''),
+      code,
+      price: Number(input.price ?? 0),
+      billingCycle: input.billingCycle != null ? String(input.billingCycle) : undefined,
+      maxUsers: input.maxUsers != null ? Number(input.maxUsers) : undefined,
+      maxChambers: input.maxChambers != null ? Number(input.maxChambers) : undefined,
+      maxStorage: input.maxStorage != null ? Number(input.maxStorage) : undefined,
+      maxCustomers: input.maxCustomers != null ? Number(input.maxCustomers) : undefined,
+      features: Array.isArray(input.features) ? input.features.map(String) : undefined,
+      description: input.description != null ? String(input.description) : undefined,
+      isActive: input.isActive != null ? Boolean(input.isActive) : undefined,
+      createdBy: actor.id,
+    },
+  });
   await writeAudit({
     userId: actor.id,
     userName: actor.name,
     action: 'CREATE',
     module: 'Plan',
-    recordId: String(plan._id),
+    recordId: plan.id,
     recordLabel: plan.name,
   });
-  return plan;
+  return serialize(plan);
 }
 
 export async function listPlans(params: {
@@ -30,59 +45,59 @@ export async function listPlans(params: {
   sortOrder: 1 | -1;
   search: string;
 }) {
-  const filter: Record<string, unknown> = { deletedAt: null };
+  const where: Record<string, unknown> = notDeleted({});
   if (params.search) {
-    const rx = new RegExp(escapeRegex(params.search), 'i');
-    filter.$or = [{ name: rx }, { code: rx }];
+    where.OR = [
+      { name: { contains: params.search, mode: 'insensitive' } },
+      { code: { contains: params.search, mode: 'insensitive' } },
+    ];
   }
+  const orderBy = { [orderField(params.sortBy)]: params.sortOrder === -1 ? 'desc' : 'asc' };
   const [data, total] = await Promise.all([
-    PlanModel.find(filter)
-      .sort({ [params.sortBy]: params.sortOrder })
-      .skip(params.skip)
-      .limit(params.limit),
-    PlanModel.countDocuments(filter),
+    prisma.plan.findMany({ where, orderBy, skip: params.skip, take: params.limit }),
+    prisma.plan.count({ where }),
   ]);
-  return { data, total };
+  return { data: serialize(data), total };
 }
 
 export async function getPlan(id: string) {
-  const plan = await PlanModel.findOne({ _id: id, deletedAt: null });
+  const plan = await prisma.plan.findFirst({ where: notDeleted({ id }) });
   if (!plan) {
     throw AppError.notFound('Plan not found');
   }
-  return plan;
+  return serialize(plan);
 }
 
 export async function updatePlan(id: string, input: Record<string, unknown>, actor: AuthUser) {
-  const plan = await PlanModel.findOne({ _id: id, deletedAt: null });
+  const plan = await prisma.plan.findFirst({ where: notDeleted({ id }) });
   if (!plan) {
     throw AppError.notFound('Plan not found');
   }
-  if (input.code) {
-    input.code = String(input.code).toUpperCase();
-  }
-  Object.assign(plan, input, { updatedBy: actor.id });
-  await plan.save();
+  const data: Record<string, unknown> = { ...input, updatedBy: actor.id };
+  if (data.code) data.code = String(data.code).toUpperCase();
+  delete data.id;
+  delete data._id;
+  const updated = await prisma.plan.update({ where: { id }, data });
   await writeAudit({
     userId: actor.id,
     userName: actor.name,
     action: 'UPDATE',
     module: 'Plan',
     recordId: id,
-    recordLabel: plan.name,
+    recordLabel: updated.name,
   });
-  return plan;
+  return serialize(updated);
 }
 
 export async function softDeletePlan(id: string, actor: AuthUser) {
-  const plan = await PlanModel.findOne({ _id: id, deletedAt: null });
+  const plan = await prisma.plan.findFirst({ where: notDeleted({ id }) });
   if (!plan) {
     throw AppError.notFound('Plan not found');
   }
-  plan.deletedAt = new Date();
-  plan.deletedBy = actor.id as unknown as typeof plan.deletedBy;
-  plan.isActive = false;
-  await plan.save();
+  const updated = await prisma.plan.update({
+    where: { id },
+    data: { deletedAt: new Date(), deletedBy: actor.id, isActive: false },
+  });
   await writeAudit({
     userId: actor.id,
     userName: actor.name,
@@ -91,5 +106,5 @@ export async function softDeletePlan(id: string, actor: AuthUser) {
     recordId: id,
     recordLabel: plan.name,
   });
-  return plan;
+  return serialize(updated);
 }

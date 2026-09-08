@@ -3,36 +3,36 @@ import bcrypt from 'bcryptjs';
 import { env } from '../config/env.js';
 import { PERMISSIONS, ROLE_CODES } from '../config/constants.js';
 import { SYSTEM_ROLES } from '../config/roles.js';
-import { PermissionModel } from '../models/Permission.js';
-import { RoleModel } from '../models/Role.js';
-import { UserModel } from '../models/User.js';
-import { PlanModel } from '../models/Plan.js';
-import { CompanyModel } from '../models/Company.js';
-import { SettingsModel } from '../models/Settings.js';
+import { prisma } from '../db/prisma.js';
+import { companyAddressFields, notDeleted } from '../db/serialize.js';
 import { logger } from '../utils/logger.js';
 import { createCompanyRoles } from '../services/company.service.js';
 import { categoryService, customerService, productService, supplierService, unitService } from '../services/master.service.js';
 import { createChamber, createLocation, createPillar, createRack } from '../services/storage.service.js';
 import { createInward, createOpeningStock } from '../services/inventory.service.js';
-import { CustomerModel } from '../models/Customer.js';
-import { UnitModel } from '../models/Unit.js';
+import type { AuthUser } from '../types/auth.js';
 
 async function seedPermissions() {
-  const docs = PERMISSIONS.map((key) => {
+  for (const key of PERMISSIONS) {
     const [module, action] = key.split('.');
-    return { key, module, action, description: key };
-  });
-  for (const doc of docs) {
-    await PermissionModel.updateOne({ key: doc.key }, { $set: doc }, { upsert: true });
+    await prisma.permission.upsert({
+      where: { key },
+      create: { key, module, action, description: key },
+      update: { module, action, description: key },
+    });
   }
 }
 
 export async function syncSystemRoles() {
   for (const template of SYSTEM_ROLES) {
-    await RoleModel.updateMany(
-      { code: template.code, isSystem: true, deletedAt: null },
-      { $set: { permissionKeys: template.permissionKeys, name: template.name, description: template.description } },
-    );
+    await prisma.role.updateMany({
+      where: { code: template.code, isSystem: true, deletedAt: null },
+      data: {
+        permissionKeys: template.permissionKeys,
+        name: template.name,
+        description: template.description,
+      },
+    });
   }
 }
 
@@ -47,24 +47,28 @@ export async function syncAccessControl() {
 async function ensureUnit(
   companyId: string,
   input: { name: string; code: string },
-  actor: { id: string; email: string; name: string; role: string; companyId: string; permissions: string[]; isSuperAdmin: boolean },
+  actor: AuthUser,
 ) {
-  const existing = await UnitModel.findOne({ companyId, code: input.code.toUpperCase(), deletedAt: null });
+  const existing = await prisma.unit.findFirst({
+    where: notDeleted({ companyId, code: input.code.toUpperCase() }),
+  });
   if (existing) return existing;
   return unitService.create(companyId, input, actor);
 }
 
 async function ensureDemoUnits() {
-  const company = await CompanyModel.findOne({ email: 'demo@abccold.test', deletedAt: null });
-  const admin = await UserModel.findOne({ email: 'admin@abccold.test', companyId: company?._id });
+  const company = await prisma.company.findFirst({ where: notDeleted({ email: 'demo@abccold.test' }) });
+  const admin = company
+    ? await prisma.user.findFirst({ where: { email: 'admin@abccold.test', companyId: company.id } })
+    : null;
   if (!company || !admin) return;
-  const actor = {
-    id: String(admin._id),
+  const actor: AuthUser = {
+    id: admin.id,
     email: admin.email,
     name: admin.name,
     role: admin.roleCode,
-    companyId: String(company._id),
-    permissions: [] as string[],
+    companyId: company.id,
+    permissions: [],
     isSuperAdmin: false,
   };
   const extras = [
@@ -77,25 +81,38 @@ async function ensureDemoUnits() {
     { name: 'Metric Ton', code: 'MT' },
   ];
   for (const unit of extras) {
-    await ensureUnit(String(company._id), unit, actor);
+    await ensureUnit(company.id, unit, actor);
   }
 }
 
 async function seedPlatformRole() {
   const superAdmin = SYSTEM_ROLES.find((r) => r.code === ROLE_CODES.SUPER_ADMIN)!;
-  await RoleModel.updateOne(
-    { code: superAdmin.code, companyId: null },
-    {
-      $set: {
+  const existing = await prisma.role.findFirst({
+    where: { code: superAdmin.code, companyId: null },
+  });
+  if (existing) {
+    await prisma.role.update({
+      where: { id: existing.id },
+      data: {
         name: superAdmin.name,
         description: superAdmin.description,
         isSystem: true,
         permissionKeys: superAdmin.permissionKeys,
         companyId: null,
       },
+    });
+    return;
+  }
+  await prisma.role.create({
+    data: {
+      name: superAdmin.name,
+      code: superAdmin.code,
+      description: superAdmin.description,
+      isSystem: true,
+      permissionKeys: superAdmin.permissionKeys,
+      companyId: null,
     },
-    { upsert: true },
-  );
+  });
 }
 
 async function seedPlans() {
@@ -138,87 +155,99 @@ async function seedPlans() {
     },
   ];
   for (const plan of plans) {
-    await PlanModel.updateOne({ code: plan.code }, { $set: plan }, { upsert: true });
+    await prisma.plan.upsert({
+      where: { code: plan.code },
+      create: plan,
+      update: plan,
+    });
   }
 }
 
 async function seedSuperAdmin() {
-  const role = await RoleModel.findOne({ code: ROLE_CODES.SUPER_ADMIN, companyId: null });
+  const role = await prisma.role.findFirst({ where: { code: ROLE_CODES.SUPER_ADMIN, companyId: null } });
   if (!role) {
     throw new Error('Super admin role missing');
   }
   const email = env.SEED_SUPER_ADMIN_EMAIL.toLowerCase();
-  const existing = await UserModel.findOne({ email }).select('+passwordHash');
+  const existing = await prisma.user.findFirst({ where: { email } });
   const passwordHash = await bcrypt.hash(env.SEED_SUPER_ADMIN_PASSWORD, env.BCRYPT_SALT_ROUNDS);
   if (existing) {
     const matches = existing.passwordHash
       ? await bcrypt.compare(env.SEED_SUPER_ADMIN_PASSWORD, existing.passwordHash)
       : false;
     if (!matches || existing.status !== 'active' || existing.deletedAt) {
-      existing.passwordHash = passwordHash;
-      existing.roleId = role._id;
-      existing.roleCode = ROLE_CODES.SUPER_ADMIN;
-      existing.status = 'active';
-      existing.deletedAt = null;
-      existing.companyId = null;
-      await existing.save();
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          passwordHash,
+          roleId: role.id,
+          roleCode: ROLE_CODES.SUPER_ADMIN,
+          status: 'active',
+          deletedAt: null,
+          companyId: null,
+        },
+      });
       logger.info({ email }, 'Super admin password reset');
     } else {
       logger.info({ email }, 'Super admin ready');
     }
     return;
   }
-  await UserModel.create({
-    name: 'Platform Super Admin',
-    email,
-    mobile: '9999999999',
-    passwordHash,
-    roleId: role._id,
-    roleCode: ROLE_CODES.SUPER_ADMIN,
-    companyId: null,
-    status: 'active',
+  await prisma.user.create({
+    data: {
+      name: 'Platform Super Admin',
+      email,
+      mobile: '9999999999',
+      passwordHash,
+      roleId: role.id,
+      roleCode: ROLE_CODES.SUPER_ADMIN,
+      companyId: null,
+      status: 'active',
+    },
   });
   logger.info({ email }, 'Super admin created');
 }
 
 async function seedDemoCompany() {
-  const plan = await PlanModel.findOne({ code: 'PROFESSIONAL' });
-  const company = await CompanyModel.findOneAndUpdate(
-    { email: 'demo@abccold.test' },
-    {
-      $set: {
-        name: 'ABC Cold Storage',
-        legalName: 'ABC Cold Storage Pvt Ltd',
-        ownerName: 'Ramesh Kumar',
-        mobile: '9876543210',
-        email: 'demo@abccold.test',
-        gstin: '',
-        pan: '',
-        address: { line1: 'Industrial Area', city: 'Agra', state: 'Uttar Pradesh', pincode: '282001' },
-        storageCapacity: 12000,
-        capacityUnit: 'MT',
-        chamberCount: 5,
-        planId: plan?._id ?? null,
-        status: 'active',
-        deletedAt: null,
-        onboardingCompleted: false,
-      },
-    },
-    { upsert: true, new: true },
-  );
-  if (!company) {
-    throw new Error('Demo company missing');
+  const plan = await prisma.plan.findFirst({ where: { code: 'PROFESSIONAL' } });
+  let company = await prisma.company.findFirst({ where: { email: 'demo@abccold.test' } });
+  const companyData = {
+    name: 'ABC Cold Storage',
+    legalName: 'ABC Cold Storage Pvt Ltd',
+    ownerName: 'Ramesh Kumar',
+    mobile: '9876543210',
+    email: 'demo@abccold.test',
+    gstin: '',
+    pan: '',
+    ...companyAddressFields({ line1: 'Industrial Area', city: 'Agra', state: 'Uttar Pradesh', pincode: '282001' }),
+    storageCapacity: 12000,
+    capacityUnit: 'MT',
+    chamberCount: 5,
+    planId: plan?.id ?? null,
+    status: 'active',
+    deletedAt: null,
+    onboardingCompleted: false,
+  };
+  if (company) {
+    company = await prisma.company.update({ where: { id: company.id }, data: companyData });
+  } else {
+    company = await prisma.company.create({ data: companyData });
   }
 
-  const roleCount = await RoleModel.countDocuments({ companyId: company._id, deletedAt: null });
+  const roleCount = await prisma.role.count({ where: notDeleted({ companyId: company.id }) });
   if (roleCount === 0) {
-    await createCompanyRoles(String(company._id));
+    await createCompanyRoles(company.id);
   }
-  await SettingsModel.updateOne(
-    { companyId: company._id },
-    { $set: { scope: 'company', handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' } },
-    { upsert: true },
-  );
+  await prisma.settings.upsert({
+    where: { companyId: company.id },
+    create: {
+      companyId: company.id,
+      scope: 'company',
+      handlingChargeBasis: 'weight',
+      handlingWeightUnit: 'KG',
+    },
+    update: { scope: 'company', handlingChargeBasis: 'weight', handlingWeightUnit: 'KG' },
+  });
 
   const passwordHash = await bcrypt.hash('ChangeMe123!', env.BCRYPT_SALT_ROUNDS);
   const roleUsers: Array<{ code: string; name: string; email: string }> = [
@@ -230,27 +259,33 @@ async function seedDemoCompany() {
   ];
 
   for (const item of roleUsers) {
-    const role = await RoleModel.findOne({ companyId: company._id, code: item.code });
+    const role = await prisma.role.findFirst({ where: { companyId: company.id, code: item.code } });
     if (!role) continue;
-    const existingUser = await UserModel.findOne({ email: item.email });
+    const existingUser = await prisma.user.findFirst({ where: { email: item.email } });
     if (existingUser) {
-      existingUser.roleId = role._id;
-      existingUser.roleCode = item.code;
-      existingUser.companyId = company._id;
-      existingUser.status = 'active';
-      existingUser.deletedAt = null;
-      await existingUser.save();
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          roleId: role.id,
+          roleCode: item.code,
+          companyId: company.id,
+          status: 'active',
+          deletedAt: null,
+        },
+      });
       continue;
     }
-    await UserModel.create({
-      name: item.name,
-      email: item.email,
-      mobile: '9000000000',
-      passwordHash,
-      roleId: role._id,
-      roleCode: item.code,
-      companyId: company._id,
-      status: 'active',
+    await prisma.user.create({
+      data: {
+        name: item.name,
+        email: item.email,
+        mobile: '9000000000',
+        passwordHash,
+        roleId: role.id,
+        roleCode: item.code,
+        companyId: company.id,
+        status: 'active',
+      },
     });
   }
 
@@ -258,31 +293,32 @@ async function seedDemoCompany() {
 }
 
 async function seedOperationalData() {
-  const company = await CompanyModel.findOne({ email: 'demo@abccold.test', deletedAt: null });
+  const company = await prisma.company.findFirst({ where: notDeleted({ email: 'demo@abccold.test' }) });
   if (!company) return;
-  const existingCustomers = await CustomerModel.countDocuments({ companyId: company._id, deletedAt: null });
+  const existingCustomers = await prisma.customer.count({ where: notDeleted({ companyId: company.id }) });
   if (existingCustomers > 0) {
     logger.info('Demo operational data already exists');
     return;
   }
 
-  const admin = await UserModel.findOne({ email: 'admin@abccold.test', companyId: company._id });
+  const admin = await prisma.user.findFirst({ where: { email: 'admin@abccold.test', companyId: company.id } });
   if (!admin) {
     logger.warn('Demo admin missing; skipping operational seed');
     return;
   }
 
-  const actor = {
-    id: String(admin._id),
+  const actor: AuthUser = {
+    id: admin.id,
     email: admin.email,
     name: admin.name,
     role: admin.roleCode,
-    companyId: String(company._id),
-    permissions: [] as string[],
+    companyId: company.id,
+    permissions: [],
     isSuperAdmin: false,
   };
 
-  const companyId = String(company._id);
+  const companyId = company.id;
+  const rowId = (doc: unknown) => String((doc as { _id?: string; id?: string })._id ?? (doc as { id?: string }).id);
   const kg = await ensureUnit(companyId, { name: 'Kilogram', code: 'KG' }, actor);
   const mt = await ensureUnit(companyId, { name: 'Metric Ton', code: 'MT' }, actor);
   await ensureUnit(companyId, { name: 'Bag', code: 'BAG' }, actor);
@@ -294,12 +330,24 @@ async function seedOperationalData() {
   await categoryService.create(companyId, { name: 'Dairy', code: 'DRY' }, actor);
   const peas = await productService.create(
     companyId,
-    { name: 'Frozen Peas', code: 'PEAS', categoryId: veg._id, unitId: mt._id, storageType: 'Frozen' },
+    {
+      name: 'Frozen Peas',
+      code: 'PEAS',
+      categoryId: rowId(veg),
+      unitId: rowId(mt),
+      storageType: 'Frozen',
+    },
     actor,
   );
   await productService.create(
     companyId,
-    { name: 'Butter', code: 'BUTTER', categoryId: veg._id, unitId: kg._id, storageType: 'Chilled' },
+    {
+      name: 'Butter',
+      code: 'BUTTER',
+      categoryId: rowId(veg),
+      unitId: rowId(kg),
+      storageType: 'Chilled',
+    },
     actor,
   );
   const customer = await customerService.create(
@@ -310,32 +358,80 @@ async function seedOperationalData() {
   await customerService.create(companyId, { name: 'Green Valley Foods', mobile: '9822222222', city: 'Mathura' }, actor);
   await supplierService.create(companyId, { name: 'Himalaya Frozen Foods', mobile: '9833333333' }, actor);
 
-  const chamber = await createChamber(companyId, { name: 'Cold Chamber 1', code: 'C01', capacity: 4000, temperature: -18 }, actor);
-  const chamberTwo = await createChamber(companyId, { name: 'Cold Chamber 2', code: 'C02', capacity: 3000, temperature: -22 }, actor);
-  const rack = await createRack(companyId, { name: 'Rack 1', code: 'R01', chamberId: chamber._id, capacity: 2000 }, actor);
-  const rackTwo = await createRack(companyId, { name: 'Rack 1', code: 'R01', chamberId: chamberTwo._id, capacity: 1500 }, actor);
+  const chamber = await createChamber(
+    companyId,
+    { name: 'Cold Chamber 1', code: 'C01', capacity: 4000, temperature: -18 },
+    actor,
+  );
+  const chamberTwo = await createChamber(
+    companyId,
+    { name: 'Cold Chamber 2', code: 'C02', capacity: 3000, temperature: -22 },
+    actor,
+  );
+  const rack = await createRack(
+    companyId,
+    { name: 'Rack 1', code: 'R01', chamberId: rowId(chamber), capacity: 2000 },
+    actor,
+  );
+  const rackTwo = await createRack(
+    companyId,
+    { name: 'Rack 1', code: 'R01', chamberId: rowId(chamberTwo), capacity: 1500 },
+    actor,
+  );
   const pillar = await createPillar(
     companyId,
-    { name: 'B-Pillar 1', code: 'B01', series: 'B', chamberId: chamber._id, rackId: rack._id, capacity: 1000 },
+    {
+      name: 'B-Pillar 1',
+      code: 'B01',
+      series: 'B',
+      chamberId: rowId(chamber),
+      rackId: rowId(rack),
+      capacity: 1000,
+    },
     actor,
   );
   await createPillar(
     companyId,
-    { name: 'B-Pillar 2', code: 'B02', series: 'B', chamberId: chamberTwo._id, rackId: rackTwo._id, capacity: 800 },
+    {
+      name: 'B-Pillar 2',
+      code: 'B02',
+      series: 'B',
+      chamberId: rowId(chamberTwo),
+      rackId: rowId(rackTwo),
+      capacity: 800,
+    },
     actor,
   );
-  const location = await createLocation(companyId, { chamberId: chamber._id, rackId: rack._id, pillarId: pillar._id, section: 'S01', capacity: 1000 }, actor);
-  await createLocation(companyId, { chamberId: chamber._id, rackId: rack._id, section: 'S02', capacity: 1000 }, actor);
-  await createLocation(companyId, { chamberId: chamberTwo._id, rackId: rackTwo._id, section: 'S01', capacity: 800 }, actor);
+  const location = await createLocation(
+    companyId,
+    {
+      chamberId: rowId(chamber),
+      rackId: rowId(rack),
+      pillarId: rowId(pillar),
+      section: 'S01',
+      capacity: 1000,
+    },
+    actor,
+  );
+  await createLocation(
+    companyId,
+    { chamberId: rowId(chamber), rackId: rowId(rack), section: 'S02', capacity: 1000 },
+    actor,
+  );
+  await createLocation(
+    companyId,
+    { chamberId: rowId(chamberTwo), rackId: rowId(rackTwo), section: 'S01', capacity: 800 },
+    actor,
+  );
 
   await createOpeningStock(
     companyId,
     {
-      customerId: String(customer._id),
-      productId: String(peas._id),
-      chamberId: String(chamber._id),
-      rackId: String(rack._id),
-      locationId: String(location._id),
+      customerId: rowId(customer),
+      productId: rowId(peas),
+      chamberId: rowId(chamber),
+      rackId: rowId(rack),
+      locationId: rowId(location),
       quantity: 250,
       unit: 'MT',
       batchNumber: 'OPEN-PEAS-01',
@@ -346,11 +442,11 @@ async function seedOperationalData() {
   await createInward(
     companyId,
     {
-      customerId: String(customer._id),
-      productId: String(peas._id),
-      chamberId: String(chamber._id),
-      rackId: String(rack._id),
-      locationId: String(location._id),
+      customerId: rowId(customer),
+      productId: rowId(peas),
+      chamberId: rowId(chamber),
+      rackId: rowId(rack),
+      locationId: rowId(location),
       quantity: 50,
       unit: 'MT',
       weight: 50000,

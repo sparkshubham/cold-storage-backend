@@ -1,4 +1,5 @@
-import { SettingsModel } from '../models/Settings.js';
+import { prisma } from '../db/prisma.js';
+import { serialize } from '../db/serialize.js';
 import { writeAudit } from '../utils/audit.js';
 import type { AuthUser } from '../types/auth.js';
 
@@ -14,6 +15,7 @@ export const DEFAULT_UNIT_RATES = [
 
 export type CompanySettings = {
   _id?: unknown;
+  id?: unknown;
   invoicePrefix?: string;
   defaultGstRate?: number;
   storageRatePerUnitPerDay?: number;
@@ -29,61 +31,76 @@ export type CompanySettings = {
   }>;
 };
 
-function asObject(doc: { toObject?: () => CompanySettings } | CompanySettings | null): CompanySettings {
-  if (doc && typeof doc === 'object' && 'toObject' in doc && typeof doc.toObject === 'function') {
-    return doc.toObject();
-  }
-  return (doc ?? {}) as CompanySettings;
+function asUnitRates(value: unknown): CompanySettings['unitRates'] {
+  return Array.isArray(value) ? (value as CompanySettings['unitRates']) : [];
 }
 
 export async function getSettings(companyId: string) {
-  let settings = await SettingsModel.findOne({ companyId });
+  let settings = await prisma.settings.findUnique({ where: { companyId } });
   if (!settings) {
-    settings = await SettingsModel.create({
-      companyId,
-      scope: 'company',
-      unitRates: DEFAULT_UNIT_RATES,
+    settings = await prisma.settings.create({
+      data: {
+        companyId,
+        scope: 'company',
+        unitRates: DEFAULT_UNIT_RATES,
+      },
     });
   } else {
-    const have = new Set((settings.unitRates ?? []).map((row) => String(row.unit).toUpperCase()));
+    const current = asUnitRates(settings.unitRates) ?? [];
+    const have = new Set(current.map((row) => String(row.unit).toUpperCase()));
     const missing = DEFAULT_UNIT_RATES.filter((row) => !have.has(row.unit));
     if (missing.length) {
-      settings.unitRates = [...(settings.unitRates ?? []), ...missing] as typeof settings.unitRates;
-      await settings.save();
+      settings = await prisma.settings.update({
+        where: { id: settings.id },
+        data: { unitRates: [...current, ...missing] },
+      });
     }
   }
-  return asObject(settings);
+  return serialize(settings) as unknown as CompanySettings;
 }
 
 export async function updateSettings(companyId: string, input: Record<string, unknown>, actor: AuthUser) {
   const existing = await getSettings(companyId);
-  const settings = await SettingsModel.findOneAndUpdate(
-    { companyId },
-    {
-      $set: {
-        scope: 'company',
-        ...(input.invoicePrefix != null ? { invoicePrefix: String(input.invoicePrefix).toUpperCase() } : {}),
-        ...(input.defaultGstRate != null ? { defaultGstRate: Number(input.defaultGstRate) } : {}),
-        ...(input.storageRatePerUnitPerDay != null ? { storageRatePerUnitPerDay: Number(input.storageRatePerUnitPerDay) } : {}),
-        ...(input.inwardHandlingRate != null ? { inwardHandlingRate: Number(input.inwardHandlingRate) } : {}),
-        ...(input.outwardHandlingRate != null ? { outwardHandlingRate: Number(input.outwardHandlingRate) } : {}),
-        ...(input.handlingChargeBasis != null ? { handlingChargeBasis: String(input.handlingChargeBasis) } : {}),
-        ...(input.handlingWeightUnit != null ? { handlingWeightUnit: String(input.handlingWeightUnit).toUpperCase() } : {}),
-        ...(input.unitRates != null ? { unitRates: input.unitRates } : {}),
-      },
+  const data: Record<string, unknown> = {
+    scope: 'company',
+  };
+  if (input.invoicePrefix != null) data.invoicePrefix = String(input.invoicePrefix).toUpperCase();
+  if (input.defaultGstRate != null) data.defaultGstRate = Number(input.defaultGstRate);
+  if (input.storageRatePerUnitPerDay != null) data.storageRatePerUnitPerDay = Number(input.storageRatePerUnitPerDay);
+  if (input.inwardHandlingRate != null) data.inwardHandlingRate = Number(input.inwardHandlingRate);
+  if (input.outwardHandlingRate != null) data.outwardHandlingRate = Number(input.outwardHandlingRate);
+  if (input.handlingChargeBasis != null) data.handlingChargeBasis = String(input.handlingChargeBasis);
+  if (input.handlingWeightUnit != null) data.handlingWeightUnit = String(input.handlingWeightUnit).toUpperCase();
+  if (input.unitRates != null) data.unitRates = input.unitRates;
+
+  const settings = await prisma.settings.upsert({
+    where: { companyId },
+    create: {
+      companyId,
+      scope: 'company',
+      unitRates: input.unitRates ?? DEFAULT_UNIT_RATES,
+      invoicePrefix: input.invoicePrefix != null ? String(input.invoicePrefix).toUpperCase() : undefined,
+      defaultGstRate: input.defaultGstRate != null ? Number(input.defaultGstRate) : undefined,
+      storageRatePerUnitPerDay: input.storageRatePerUnitPerDay != null ? Number(input.storageRatePerUnitPerDay) : undefined,
+      inwardHandlingRate: input.inwardHandlingRate != null ? Number(input.inwardHandlingRate) : undefined,
+      outwardHandlingRate: input.outwardHandlingRate != null ? Number(input.outwardHandlingRate) : undefined,
+      handlingChargeBasis: input.handlingChargeBasis != null ? String(input.handlingChargeBasis) : undefined,
+      handlingWeightUnit: input.handlingWeightUnit != null ? String(input.handlingWeightUnit).toUpperCase() : undefined,
     },
-    { new: true, upsert: true, setDefaultsOnInsert: true },
-  );
+    update: data,
+  });
+
+  const serialized = serialize(settings) as unknown as CompanySettings;
   await writeAudit({
     companyId,
     userId: actor.id,
     userName: actor.name,
     action: 'UPDATE',
     module: 'Settings',
-    recordId: String(settings?._id ?? companyId),
+    recordId: String(settings.id),
     recordLabel: 'Billing settings',
     oldValue: existing,
-    newValue: asObject(settings ?? {}),
+    newValue: serialized,
   });
-  return asObject(settings ?? {});
+  return serialized;
 }

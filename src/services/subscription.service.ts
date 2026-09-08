@@ -1,9 +1,11 @@
-import { SubscriptionModel } from '../models/Subscription.js';
-import { PlanModel } from '../models/Plan.js';
-import { CompanyModel } from '../models/Company.js';
+import { prisma } from '../db/prisma.js';
+import { notDeleted, orderField, serialize, withPopulated } from '../db/serialize.js';
 import { AppError } from '../utils/AppError.js';
 import { writeAudit } from '../utils/audit.js';
+import { withTransaction } from '../utils/transaction.js';
 import type { AuthUser } from '../types/auth.js';
+
+const subPopulateMap = { company: 'companyId', plan: 'planId' };
 
 export async function createSubscription(
   input: {
@@ -18,8 +20,8 @@ export async function createSubscription(
   actor: AuthUser,
 ) {
   const [company, plan] = await Promise.all([
-    CompanyModel.findOne({ _id: input.companyId, deletedAt: null }),
-    PlanModel.findOne({ _id: input.planId, deletedAt: null }),
+    prisma.company.findFirst({ where: notDeleted({ id: input.companyId }) }),
+    prisma.plan.findFirst({ where: notDeleted({ id: input.planId }) }),
   ]);
   if (!company) {
     throw AppError.notFound('Company not found');
@@ -28,17 +30,29 @@ export async function createSubscription(
     throw AppError.notFound('Plan not found');
   }
 
-  const subscription = await SubscriptionModel.create({
-    ...input,
-    amount: input.amount ?? plan.price,
-    status: input.status ?? 'active',
-    createdBy: actor.id,
+  const subscription = await withTransaction(async (tx) => {
+    const created = await tx.subscription.create({
+      data: {
+        companyId: input.companyId,
+        planId: input.planId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        amount: input.amount ?? plan.price,
+        status: input.status ?? 'active',
+        notes: input.notes ?? '',
+        createdBy: actor.id,
+      },
+    });
+    await tx.company.update({
+      where: { id: input.companyId },
+      data: {
+        planId: plan.id,
+        subscriptionId: created.id,
+        status: created.status === 'active' ? 'active' : company.status,
+      },
+    });
+    return created;
   });
-
-  company.planId = plan._id;
-  company.subscriptionId = subscription._id;
-  company.status = subscription.status === 'active' ? 'active' : company.status;
-  await company.save();
 
   await writeAudit({
     companyId: input.companyId,
@@ -46,11 +60,11 @@ export async function createSubscription(
     userName: actor.name,
     action: 'CREATE',
     module: 'Subscription',
-    recordId: String(subscription._id),
+    recordId: subscription.id,
     recordLabel: `${company.name} / ${plan.name}`,
   });
 
-  return subscription;
+  return serialize(subscription);
 }
 
 export async function listSubscriptions(params: {
@@ -62,20 +76,28 @@ export async function listSubscriptions(params: {
   status?: string;
   companyId?: string;
 }) {
-  const filter: Record<string, unknown> = { deletedAt: null };
-  if (params.status) filter.status = params.status;
-  if (params.companyId) filter.companyId = params.companyId;
+  const where: Record<string, unknown> = notDeleted({});
+  if (params.status) where.status = params.status;
+  if (params.companyId) where.companyId = params.companyId;
 
-  const [data, total] = await Promise.all([
-    SubscriptionModel.find(filter)
-      .populate('companyId', 'name email status')
-      .populate('planId', 'name code price billingCycle')
-      .sort({ [params.sortBy]: params.sortOrder })
-      .skip(params.skip)
-      .limit(params.limit),
-    SubscriptionModel.countDocuments(filter),
+  const orderBy = { [orderField(params.sortBy)]: params.sortOrder === -1 ? 'desc' : 'asc' };
+  const [rows, total] = await Promise.all([
+    prisma.subscription.findMany({
+      where,
+      orderBy,
+      skip: params.skip,
+      take: params.limit,
+      include: {
+        company: { select: { id: true, name: true, email: true, status: true } },
+        plan: { select: { id: true, name: true, code: true, price: true, billingCycle: true } },
+      },
+    }),
+    prisma.subscription.count({ where }),
   ]);
-  return { data, total };
+  return {
+    data: (rows as Record<string, unknown>[]).map((row) => withPopulated(row, subPopulateMap)),
+    total,
+  };
 }
 
 export async function updateSubscriptionStatus(
@@ -83,26 +105,37 @@ export async function updateSubscriptionStatus(
   status: 'active' | 'expired' | 'suspended' | 'cancelled',
   actor: AuthUser,
 ) {
-  const subscription = await SubscriptionModel.findOne({ _id: id, deletedAt: null });
+  const subscription = await prisma.subscription.findFirst({ where: notDeleted({ id }) });
   if (!subscription) {
     throw AppError.notFound('Subscription not found');
   }
-  subscription.status = status;
-  if (status === 'cancelled') {
-    subscription.cancelledAt = new Date();
-  }
-  subscription.updatedBy = actor.id as unknown as typeof subscription.updatedBy;
-  await subscription.save();
 
-  if (status === 'cancelled' || status === 'suspended') {
-    await CompanyModel.updateOne({ _id: subscription.companyId }, { $set: { status: 'suspended' } });
-  }
-  if (status === 'active') {
-    await CompanyModel.updateOne({ _id: subscription.companyId }, { $set: { status: 'active' } });
-  }
+  const updated = await withTransaction(async (tx) => {
+    const next = await tx.subscription.update({
+      where: { id },
+      data: {
+        status,
+        cancelledAt: status === 'cancelled' ? new Date() : subscription.cancelledAt,
+        updatedBy: actor.id,
+      },
+    });
+    if (status === 'cancelled' || status === 'suspended') {
+      await tx.company.update({
+        where: { id: subscription.companyId },
+        data: { status: 'suspended' },
+      });
+    }
+    if (status === 'active') {
+      await tx.company.update({
+        where: { id: subscription.companyId },
+        data: { status: 'active' },
+      });
+    }
+    return next;
+  });
 
   await writeAudit({
-    companyId: String(subscription.companyId),
+    companyId: subscription.companyId,
     userId: actor.id,
     userName: actor.name,
     action: 'UPDATE',
@@ -110,5 +143,5 @@ export async function updateSubscriptionStatus(
     recordId: id,
     newValue: { status },
   });
-  return subscription;
+  return serialize(updated);
 }
